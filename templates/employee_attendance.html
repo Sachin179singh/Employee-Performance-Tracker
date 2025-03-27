@@ -1,0 +1,25 @@
+<!-- templates/employee_attendance.html -->
+{% extends "base.html" %}
+{% block title %}Employee Attendance{% endblock %}
+{% block content %}
+<h2><i class="fas fa-calendar-check"></i> {{ employee.name }}'s Attendance</h2>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>Time In</th>
+            <th>Time Out</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for attendance in attendances %}
+        <tr>
+            <td>{{ attendance.date }}</td>
+            <td>{{ attendance.time_in }}</td>
+            <td>{{ attendance.time_out }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<a href="{{ url_for('admin') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back to Admin</a>
+{% endblock %}

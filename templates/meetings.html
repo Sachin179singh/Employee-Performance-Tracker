@@ -1,0 +1,25 @@
+<!-- templates/meetings.html -->
+{% extends "base.html" %}
+{% block title %}Meetings{% endblock %}
+{% block content %}
+<h2><i class="fas fa-calendar-alt"></i> Meetings</h2>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Title</th>
+            <th>Date</th>
+            <th>Location</th>
+            <th>Description</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for meeting in meetings %}
+        <tr>
+            <td>{{ meeting.title }}</td>
+            <td>{{ meeting.date }}</td>
+            <td>{{ meeting.location }}</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

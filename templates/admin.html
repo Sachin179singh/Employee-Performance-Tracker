@@ -1,0 +1,38 @@
+<!-- templates/admin.html -->
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<h2><i class="fas fa-users"></i> Manage Employees</h2>
+
+<a href="{{ url_for('create_employee') }}" class="btn btn-success mb-3"><i class="fas fa-plus"></i> Create New Employee</a>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Employee ID</th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for employee in employees %}
+        <tr>
+            <td>{{ employee.employee_id }}</td>
+            <td>{{ employee.name }}</td>
+            <td>{{ employee.email }}</td>
+            <td>{{ employee.role }}</td>
+            <td>
+                <a href="{{ url_for('view_employee_profile', employee_id=employee.id) }}" class="btn btn-info btn-sm"><i class="fas fa-user"></i> View Profile</a>
+                <a href="{{ url_for('view_employee_attendance', employee_id=employee.id) }}" class="btn btn-info btn-sm"><i class="fas fa-calendar-check"></i> Attendance</a>
+                <a href="{{ url_for('send_message', recipient_id=employee.id) }}" class="btn btn-primary btn-sm"><i class="fas fa-envelope"></i> Send Message</a>
+                <form method="POST" action="{{ url_for('delete_employee', employee_id=employee.id) }}" style="display: inline;">
+                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete {{ employee.name }}?')"><i class="fas fa-trash"></i> Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,91 @@
+<!-- templates/profile.html -->
+{% extends "base.html" %}
+{% block title %}Employee Dashboard{% endblock %}
+{% block content %}
+
+<div class="container">
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <i class="fas fa-user"></i> Employee Information
+                </div>
+                <div class="card-body">
+                    <dl>
+                        <dt>Employee ID:</dt>
+                        <dd>{{ employee.employee_id }}</dd>
+                        <dt>Name:</dt>
+                        <dd>{{ employee.name }}</dd>
+                        <dt>Email:</dt>
+                        <dd>{{ employee.email }}</dd>
+                        <dt>Role:</dt>
+                        <dd>{{ employee.role }}</dd>
+                        <dt>Mobile Number:</dt>
+                        <dd>{{ employee.mobile_number }}</dd>  <!-- Display mobile number -->
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <i class="fas fa-calendar-check"></i> Upcoming Meetings
+                </div>
+                <div class="card-body">
+                    {% if meetings %}
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Date</th>
+                                <th>Location</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for meeting in meetings %}
+                            <tr>
+                                <td>{{ meeting.title }}</td>
+                                <td>{{ meeting.date }}</td>
+                                <td>{{ meeting.location }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p>No upcoming meetings scheduled.</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header bg-success text-white">
+                            <i class="fas fa-calendar-alt"></i> Quick Links
+                        </div>
+                        <div class="card-body">
+                            <a href="{{ url_for('attendance') }}" class="btn btn-outline-primary btn-block mb-2">
+                                <i class="fas fa-calendar-check"></i> View Attendance
+                            </a>
+                            <a href="{{ url_for('inbox') }}" class="btn btn-outline-info btn-block">
+                                <i class="fas fa-envelope"></i> View Inbox
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header bg-warning text-white">
+                            <i class="fas fa-bullhorn"></i> Announcements
+                        </div>
+                        <div class="card-body">
+                            <p>Stay tuned for company updates and announcements!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

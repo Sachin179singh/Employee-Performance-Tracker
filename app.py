@@ -154,10 +154,68 @@ def logout():
 #@login_required
 def profile():
     employee = Employee.query.get(session['user_id'])
+    
+    # Get current month and year
+    today = dt.now(datetime.UTC)
+    month_year = today.strftime('%B %Y')
+    
+    # Calculate calendar days for current month
+    calendar_days = []
+    first_day = today.replace(day=1)
+    last_day = (first_day.replace(month=first_day.month % 12 + 1, day=1) - datetime.timedelta(days=1))
+    
+    # Get all attendance records for current month
+    month_attendance = Attendance.query.filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date >= first_day.date(),
+        Attendance.date <= last_day.date()
+    ).all()
+    
+    # Create attendance lookup dictionary
+    attendance_lookup = {att.date: att for att in month_attendance}
+    
+    # Generate calendar days with attendance status
+    current_date = first_day
+    while current_date <= last_day:
+        day_data = {
+            'date': current_date.day,
+            'is_weekend': current_date.weekday() >= 5,
+            'status': 'weekend' if current_date.weekday() >= 5 else None
+        }
+        
+        if not day_data['is_weekend']:
+            attendance = attendance_lookup.get(current_date.date())
+            if attendance:
+                # Calculate work duration if both time_in and time_out exist
+                if attendance.time_in and attendance.time_out:
+                    duration = datetime.datetime.combine(datetime.date.min, attendance.time_out) - \
+                              datetime.datetime.combine(datetime.date.min, attendance.time_in)
+                    hours_worked = duration.total_seconds() / 3600
+                    
+                    if hours_worked >= 8:
+                        day_data['status'] = 'present'
+                    elif hours_worked >= 4:
+                        day_data['status'] = 'half-day'
+                    else:
+                        day_data['status'] = 'absent'
+                else:
+                    day_data['status'] = 'absent'
+            else:
+                if current_date.date() < today.date():
+                    day_data['status'] = 'absent'
+        
+        calendar_days.append(day_data)
+        current_date += datetime.timedelta(days=1)
+    
     # Fetch only upcoming meetings for the dashboard
     now = dt.now(datetime.UTC)
-    meetings = Meeting.query.filter_by(employee_id=employee.id).filter(Meeting.date >= now).order_by(Meeting.date).limit(5).all()  # Limit to 5 upcoming meetings
-    return render_template('profile.html', employee=employee, meetings=meetings)
+    meetings = Meeting.query.filter_by(employee_id=employee.id).filter(Meeting.date >= now).order_by(Meeting.date).limit(5).all()
+    
+    return render_template('profile.html', 
+                         employee=employee, 
+                         meetings=meetings, 
+                         calendar_days=calendar_days, 
+                         month_year=month_year)
 
 @app.route("/attendance")
 #@login_required

@@ -3,12 +3,12 @@
 {% block title %}Employee Dashboard{% endblock %}
 {% block content %}
 
-<div class="container">
+<div class="container mt-5">
     <div class="row">
         <div class="col-md-4">
-            <div class="card mb-4">
-                <div class="card-header bg-primary text-white">
-                    <i class="fas fa-user"></i> Employee Information
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-primary text-white text-center">
+                    <h5><i class="fas fa-user"></i> Employee Information</h5>
                 </div>
                 <div class="card-body">
                     <dl>
@@ -28,14 +28,14 @@
         </div>
 
         <div class="col-md-8">
-            <div class="card mb-4">
-                <div class="card-header bg-info text-white">
-                    <i class="fas fa-calendar-check"></i> Upcoming Meetings
-                </div>
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-info text-white text-center">
+                    <h5><i class="fas fa-calendar-check"></i> Upcoming Meetings</h5>
+                </div>            
                 <div class="card-body">
                     {% if meetings %}
-                    <table class="table table-striped">
-                        <thead>
+                    <table class="table table-hover">
+                        <thead class="thead-light">
                             <tr>
                                 <th>Title</th>
                                 <th>Date</th>
@@ -53,17 +53,17 @@
                         </tbody>
                     </table>
                     {% else %}
-                    <p>No upcoming meetings scheduled.</p>
+                    <p class="text-muted text-center">No upcoming meetings scheduled.</p>
                     {% endif %}
                 </div>
             </div>
             <div class="row">
                 <div class="col-md-6">
-                    <div class="card mb-4">
-                        <div class="card-header bg-success text-white">
-                            <i class="fas fa-calendar-alt"></i> Quick Links
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-success text-white text-center">
+                            <h5><i class="fas fa-calendar-alt"></i> Quick Links</h5>
                         </div>
-                        <div class="card-body">
+                        <div class="card-body text-center">
                             <a href="{{ url_for('attendance') }}" class="btn btn-outline-primary btn-block mb-2">
                                 <i class="fas fa-calendar-check"></i> View Attendance
                             </a>
@@ -74,12 +74,12 @@
                     </div>
                 </div>
                 <div class="col-md-6">
-                    <div class="card mb-4">
-                        <div class="card-header bg-warning text-white">
-                            <i class="fas fa-bullhorn"></i> Announcements
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-warning text-white text-center">
+                            <h5><i class="fas fa-bullhorn"></i> Announcements</h5>
                         </div>
-                        <div class="card-body">
-                            <p>Stay tuned for company updates and announcements!</p>
+                        <div class="card-body text-center">
+                            <p class="text-muted">Stay tuned for company updates and announcements!</p>
                         </div>
                     </div>
                 </div>
@@ -87,5 +87,4 @@
         </div>
     </div>
 </div>
-
-{% endblock %}
+{% endblock  %}

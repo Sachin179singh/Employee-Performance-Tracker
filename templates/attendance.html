@@ -14,9 +14,9 @@
     <tbody>
         {% for attendance in attendances %}
         <tr>
-            <td>{{ attendance.date }}</td>
-            <td>{{ attendance.time_in }}</td>
-            <td>{{ attendance.time_out }}</td>
+            <td>{{ attendance.date.strftime('%Y-%m-%d') }}</td>
+            <td>{{ attendance.time_in.strftime('%I:%M %p') if attendance.time_in else '-' }}</td>
+            <td>{{ attendance.time_out.strftime('%I:%M %p') if attendance.time_out else '-' }}</td>
         </tr>
         {% endfor %}
     </tbody>

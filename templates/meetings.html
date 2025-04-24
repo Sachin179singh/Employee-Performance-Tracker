@@ -7,7 +7,7 @@
     <thead>
         <tr>
             <th>Title</th>
-            <th>Date</th>
+            <th>Date & Time</th>
             <th>Location</th>
             <th>Description</th>
         </tr>
@@ -16,9 +16,10 @@
         {% for meeting in meetings %}
         <tr>
             <td>{{ meeting.title }}</td>
-            <td>{{ meeting.date }}</td>
+            <td>{{ meeting.date.strftime('%Y-%m-%d %I:%M %p') }}</td>
             <td>{{ meeting.location }}</td>
-            </tr>
+            <td>{{ meeting.description }}</td>
+        </tr>
         {% endfor %}
     </tbody>
 </table>

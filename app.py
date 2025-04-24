@@ -1,31 +1,52 @@
 import os
+from werkzeug.utils import secure_filename
 import hashlib
 from datetime import datetime as dt
 import datetime
-
-from flask import Flask, render_template, url_for, flash, redirect, request, session
+from flask import Flask, render_template, url_for, flash, redirect, request
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import webview
 import threading
 import time
-from flask_session import Session  # pip install Flask-Session
-import bcrypt  # pip install bcrypt
+import bcrypt
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField, DateField, TimeField, TextAreaField, SelectField
 from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///company.db'
-app.config['SECRET_KEY'] = os.urandom(24)  # Important for session security!
-app.config["SESSION_PERMANENT"] = False
-app.config["SESSION_TYPE"] = "filesystem"
+app.config['SECRET_KEY'] = os.urandom(24)
+app.config['UPLOAD_FOLDER'] = 'static/profile_pics'
+app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024  # 1MB max file size
+
 db = SQLAlchemy(app)
-Session(app)  # Initialize Flask-Session
+migrate = Migrate(app, db)
+
+# Initialize Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message_category = 'info'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return Employee.query.get(int(user_id))
+
+# Make employee data available to all templates
+@app.context_processor
+def inject_employee():
+    if current_user.is_authenticated:
+        return dict(employee=current_user)
+    return dict(employee=None)
 
 # --- Database Models ---
-class Employee(db.Model):
+
+
+class Employee(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.String(20), unique=True, nullable=False)
     name = db.Column(db.String(100), nullable=False)
@@ -33,6 +54,7 @@ class Employee(db.Model):
     password = db.Column(db.String(60), nullable=False)  # Store hash, not plaintext!
     role = db.Column(db.String(20), default='employee')  # 'admin' or 'employee'
     mobile_number = db.Column(db.String(20))  # New mobile_number column
+    profile_picture = db.Column(db.String(120), default='default.jpg')  # Profile picture filename
     attendance = db.relationship('Attendance', backref='employee', lazy=True)
     messages_sent = db.relationship('Message', backref='sender', foreign_keys='[Message.sender_id]', lazy=True)
     messages_received = db.relationship('Message', backref='recipient', foreign_keys='[Message.recipient_id]', lazy=True)
@@ -49,6 +71,11 @@ class Employee(db.Model):
         """Checks if the provided password matches the stored hash."""
         return bcrypt.checkpw(password.encode('utf-8'), self.password.encode('utf-8'))
 
+    def is_admin(self):
+        """Helper method to check if user is admin"""
+        return self.role == 'admin'
+
+
 class Attendance(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
@@ -57,7 +84,8 @@ class Attendance(db.Model):
     time_out = db.Column(db.Time)
 
     def __repr__(self):
-        return f"Attendance('{self.date}', '{self.time_in}', '{self.time_out}')"
+        return f"Attendance('{self.date}', '{self.time_in}', '{self.time_out}')"    
+
 
 class Meeting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -70,6 +98,7 @@ class Meeting(db.Model):
     def __repr__(self):
         return f"Meeting('{self.title}', '{self.date}')"
 
+
 class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     sender_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
@@ -78,10 +107,13 @@ class Message(db.Model):
     content = db.Column(db.Text, nullable=False)
 
 # --- Forms ---
+
+
 class LoginForm(FlaskForm):
     employee_id = StringField('Employee ID', validators=[DataRequired()])
     password = PasswordField('Password', validators=[DataRequired()])
     submit = SubmitField('Login')
+
 
 class MeetingForm(FlaskForm):
     title = StringField('Title', validators=[DataRequired()])
@@ -90,6 +122,7 @@ class MeetingForm(FlaskForm):
     location = StringField('Location')
     description = TextAreaField('Description')
     submit = SubmitField('Create Meeting')
+
 
 class EmployeeForm(FlaskForm):
     employee_id = StringField('Employee ID', validators=[DataRequired()])
@@ -110,51 +143,58 @@ class EmployeeForm(FlaskForm):
         if employee:
             raise ValidationError('That email is already taken.')
 
+
 class MessageForm(FlaskForm):
     content = TextAreaField('Message', validators=[DataRequired()])
     submit = SubmitField('Send Message')
 
 # --- Helper functions ---
+
+
+def allowed_file(filename):
+    """Check if the file extension is allowed."""
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 def is_admin():
     """Checks if the current user is an administrator."""
-    return session.get('user_role') == 'admin'
+    return current_user.is_authenticated and current_user.role == 'admin'
 
-def login_required(f):
-    """Decorator to require login for a route."""
-    def decorated_function(*args, **kwargs):
-        if session.get("user_id") is None:
-            return redirect(url_for('login', next=request.url))
-        return f(*args, **kwargs)
-    return decorated_function
 
 # --- Authentication Routes ---
+
+
 @app.route("/", methods=['GET', 'POST'])
 @app.route("/login", methods=['GET', 'POST'])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('profile'))
     form = LoginForm()
     if form.validate_on_submit():
         employee = Employee.query.filter_by(employee_id=form.employee_id.data).first()
         if employee and employee.check_password(form.password.data):
-            session['user_id'] = employee.id
-            session['user_role'] = employee.role
+            login_user(employee)
             flash('Login successful!', 'success')
-            return redirect(url_for('profile'))
+            next_page = request.args.get('next')
+            return redirect(next_page) if next_page else redirect(url_for('profile'))
         else:
             flash('Login failed. Please check your credentials.', 'danger')
     return render_template('login.html', form=form)
 
+
 @app.route("/logout")
+@login_required
 def logout():
-    session.clear()
+    logout_user()
     flash("You have been logged out.", "info")
     return redirect(url_for("login"))
 
 # --- Employee Routes ---
+
+
 @app.route("/profile")
-#@login_required
+@login_required
 def profile():
-    employee = Employee.query.get(session['user_id'])
-    
     # Get current month and year
     today = dt.now(datetime.UTC)
     month_year = today.strftime('%B %Y')
@@ -166,7 +206,7 @@ def profile():
     
     # Get all attendance records for current month
     month_attendance = Attendance.query.filter(
-        Attendance.employee_id == employee.id,
+        Attendance.employee_id == current_user.id,
         Attendance.date >= first_day.date(),
         Attendance.date <= last_day.date()
     ).all()
@@ -209,43 +249,35 @@ def profile():
     
     # Fetch only upcoming meetings for the dashboard
     now = dt.now(datetime.UTC)
-    meetings = Meeting.query.filter_by(employee_id=employee.id).filter(Meeting.date >= now).order_by(Meeting.date).limit(5).all()
+    meetings = Meeting.query.filter_by(employee_id=current_user.id).filter(Meeting.date >= now).order_by(Meeting.date).limit(5).all()
     
-    return render_template('profile.html', 
-                         employee=employee, 
-                         meetings=meetings, 
-                         calendar_days=calendar_days, 
-                         month_year=month_year)
+    return render_template('profile.html', meetings=meetings, calendar_days=calendar_days, month_year=month_year)
 
 @app.route("/attendance")
-#@login_required
+@login_required
 def attendance():
-    employee = Employee.query.get(session['user_id'])
-    attendances = Attendance.query.filter_by(employee_id=employee.id).all()
+    attendances = Attendance.query.filter_by(employee_id=current_user.id).all()
     return render_template('attendance.html', attendances=attendances)
 
 @app.route("/meetings")
-#@login_required
+@login_required
 def meetings():
-    employee = Employee.query.get(session['user_id'])
-    meetings = Meeting.query.filter_by(employee_id=employee.id).all()
+    meetings = Meeting.query.filter_by(employee_id=current_user.id).all()
     return render_template('meetings.html', meetings=meetings)
 
 @app.route("/inbox")
-#@login_required
+@login_required
 def inbox():
-    employee = Employee.query.get(session['user_id'])
-    messages = Message.query.filter(Message.recipient_id == employee.id).order_by(Message.timestamp.desc()).all()
+    messages = Message.query.filter(Message.recipient_id == current_user.id).order_by(Message.timestamp.desc()).all()
     return render_template('inbox.html', messages=messages)
 
 @app.route("/send_message/<int:recipient_id>", methods=['GET', 'POST'])
-#@login_required
+@login_required
 def send_message(recipient_id):
     form = MessageForm()
     recipient = Employee.query.get_or_404(recipient_id)
     if form.validate_on_submit():
-        sender_id = session['user_id']
-        new_message = Message(sender_id=sender_id, recipient_id=recipient_id, content=form.content.data)
+        new_message = Message(sender_id=current_user.id, recipient_id=recipient_id, content=form.content.data)
         db.session.add(new_message)
         db.session.commit()
         flash('Message sent!', 'success')
@@ -254,8 +286,10 @@ def send_message(recipient_id):
     return render_template('send_message.html', form=form, recipient=recipient)
 
 # --- Admin Routes ---
+
+
 @app.route("/admin")
-#@login_required
+@login_required
 def admin():
     if not is_admin():
         flash("You are not authorized to access this page.", "danger")
@@ -264,7 +298,7 @@ def admin():
     return render_template('admin.html', employees=employees)
 
 @app.route("/admin/employee/<int:employee_id>")
-#@login_required
+@login_required
 def view_employee_profile(employee_id):
     if not is_admin():
         flash("You are not authorized to view employee profiles.", "danger")
@@ -277,7 +311,7 @@ def view_employee_profile(employee_id):
 
 
 @app.route("/admin/employee/new", methods=['GET', 'POST'])
-#@login_required
+@login_required
 def create_employee():
     if not is_admin():
         flash("You are not authorized to create employees.", "danger")
@@ -294,7 +328,7 @@ def create_employee():
     return render_template('create_employee.html', form=form)
 
 @app.route("/admin/employee/<int:employee_id>/delete", methods=['POST'])
-#@login_required
+@login_required
 def delete_employee(employee_id):
     if not is_admin():
         flash("You are not authorized to delete employees.", "danger")
@@ -313,7 +347,7 @@ def delete_employee(employee_id):
     return redirect(url_for('admin'))
 
 @app.route("/admin/employee/<int:employee_id>/attendance", methods=['GET'])
-#@login_required
+@login_required
 def view_employee_attendance(employee_id):
     if not is_admin():
         flash("You are not authorized to view attendance.", "danger")
@@ -324,7 +358,7 @@ def view_employee_attendance(employee_id):
     return render_template('employee_attendance.html', employee=employee, attendances=attendances)
 
 @app.route("/create_meeting", methods=['GET', 'POST'])
-#@login_required
+@login_required
 def create_meeting():
     if not is_admin():
         flash("You are not authorized to create meetings.", "danger")
@@ -332,10 +366,9 @@ def create_meeting():
 
     form = MeetingForm()
     if form.validate_on_submit():
-        employee_id = session['user_id']
         combined_datetime = datetime.combine(form.date.data, form.time.data)
         new_meeting = Meeting(
-            employee_id=employee_id,
+            employee_id=current_user.id,
             title=form.title.data,
             date=combined_datetime,
             location=form.location.data,
@@ -344,13 +377,60 @@ def create_meeting():
         db.session.add(new_meeting)
         db.session.commit()
         flash('Meeting created successfully!', 'success')
-        return redirect(url_for('admin'))  # Redirect to admin or meetings page
+        return redirect(url_for('admin'))
 
     return render_template('create_meeting.html', form=form)
 
+
+@app.route("/calendar")
+@login_required
+def calendar():
+    if is_admin():
+        # Admins can see all meetings
+        meetings = Meeting.query.all()
+    else:
+        # Regular employees only see their own meetings
+        meetings = Meeting.query.filter_by(employee_id=current_user.id).all()
+    return render_template("calendar.html", meetings=meetings)
+
+@app.route("/update_profile_picture", methods=['POST'])
+@login_required
+def update_profile_picture():
+    if 'profile_picture' not in request.files:
+        flash('No file selected', 'danger')
+        return redirect(url_for('profile'))
+    
+    file = request.files['profile_picture']
+    if file.filename == '':
+        flash('No file selected', 'danger')
+        return redirect(url_for('profile'))
+    
+    if file and allowed_file(file.filename):
+        # Delete old profile picture if it exists and isn't default
+        if current_user.profile_picture != 'default.jpg':
+            old_file = os.path.join(app.root_path, app.config['UPLOAD_FOLDER'], current_user.profile_picture)
+            if os.path.exists(old_file):
+                os.remove(old_file)
+        
+        # Save new profile picture
+        filename = secure_filename(f"{current_user.employee_id}_{file.filename}")
+        file.save(os.path.join(app.root_path, app.config['UPLOAD_FOLDER'], filename))
+        
+        # Update database
+        current_user.profile_picture = filename
+        db.session.commit()
+        
+        flash('Profile picture updated successfully!', 'success')
+        return redirect(url_for('profile'))
+    
+    flash('Invalid file type. Please use PNG, JPG, JPEG or GIF', 'danger')
+    return redirect(url_for('profile'))
+
 # --- WebView Integration ---
+
+
 def start_server():
-    app.run(debug=False, host='0.0.0.0', port=5000)  # Be explicit about host and port
+    app.run(debug=True, host='0.0.0.0', port=5000)  # Be explicit about host and port
 
 if __name__ == '__main__':
     # --- Database setup ---
@@ -364,13 +444,14 @@ if __name__ == '__main__':
             admin_user.set_password('password')  # USE A STRONG PASSWORD!
             db.session.add(admin_user)
             db.session.commit()
+        start_server()
 
     # --- Start Flask server in a thread ---
-    t = threading.Thread(target=start_server)
-    t.daemon = True
-    t.start()
-    time.sleep(1)  # Give the server a moment to start
+    # t = threading.Thread(target=start_server)
+    # t.daemon = True
+    # t.start()
+    # time.sleep(1)  # Give the server a moment to start
 
-    # --- Create and run WebView window ---
-    webview.create_window("Digipodium", "http://127.0.0.1:5000/",maximized=True)
-    webview.start()
+    # # --- Create and run WebView window ---
+    # webview.create_window("Digipodium", "http://127.0.0.1:5000/",maximized=True)
+    # webview.start()

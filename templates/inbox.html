@@ -15,7 +15,7 @@
         {% for message in messages %}
         <tr>
             <td>{{ message.sender.name }}</td>
-            <td>{{ message.timestamp }}</td>
+            <td>{{ message.timestamp.strftime('%Y-%m-%d %I:%M %p') }}</td>
             <td>{{ message.content }}</td>
         </tr>
         {% endfor %}

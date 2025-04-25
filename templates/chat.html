@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Chat{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Chat Sidebar -->
+        <div class="col-md-3 border-right">
+            <div class="p-3">
+                <h4>Conversations</h4>
+                <div class="list-group">
+                    {% for conversation in conversations %}
+                    <a href="{{ url_for('chat', user_id=conversation.user.id) }}" 
+                       class="list-group-item list-group-item-action {% if conversation.user.id == current_chat_user.id %}active{% endif %}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-1">{{ conversation.user.name }}</h6>
+                                <small class="text-muted">{{ conversation.last_message.content|truncate(30) if conversation.last_message else 'No messages' }}</small>
+                            </div>
+                            {% if conversation.unread_count > 0 %}
+                            <span class="badge badge-primary">{{ conversation.unread_count }}</span>
+                            {% endif %}
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Main Area -->
+        <div class="col-md-9">
+            <!-- Chat Header -->
+            <div class="border-bottom p-3">
+                <div class="d-flex align-items-center">
+                    <h5 class="mb-0">{{ current_chat_user.name }}</h5>
+                    <div class="typing-indicator ml-3" id="typingIndicator" style="display: none;">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Messages Container -->
+            <div class="chat-container" id="messageContainer">
+                {% for message in messages %}
+                <div class="message {% if message.sender_id == current_user.id %}text-right{% endif %}"
+                     data-message-id="{{ message.id }}">
+                    <div class="message-bubble">
+                        {{ message.content }}
+                        {% if message.attachment %}
+                        <div class="message-attachment">
+                            <a href="{{ url_for('download_attachment', message_id=message.id) }}" target="_blank">
+                                <i class="fas {{ get_file_icon(message.attachment.type) }}"></i>
+                                <span>{{ message.attachment.filename }}</span>
+                            </a>
+                        </div>
+                        {% endif %}
+                        <div class="message-reactions" id="reactions-{{ message.id }}">
+                            {% for reaction in message.reactions %}
+                            <div class="reaction-badge" title="{{ reaction.user.name }}">
+                                {{ reaction.emoji }} {{ reaction.count if reaction.count > 1 }}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="message-info d-flex align-items-center">
+                        <small class="text-muted">{{ message.created_at }}</small>
+                        {% if message.sender_id == current_user.id %}
+                        <div class="message-status ml-2" title="{{ 'Read' if message.read else 'Delivered' }}">
+                            <i class="fas fa-check{% if message.read %}-double{% endif %}"></i>
+                        </div>
+                        {% endif %}
+                        <div class="emoji-picker ml-2">
+                            <button type="button" class="emoji-picker-toggle">
+                                <i class="far fa-smile"></i>
+                            </button>
+                            <div class="emoji-picker-popup">
+                                {% for emoji in ['👍', '❤️', '😊', '😂', '😮', '😢', '👏', '🎉'] %}
+                                <button type="button" class="emoji-btn" data-emoji="{{ emoji }}" data-message-id="{{ message.id }}">
+                                    {{ emoji }}
+                                </button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Message Input -->
+            <div class="border-top p-3">
+                <form id="messageForm">
+                    <div class="message-input-container">
+                        <div class="message-drop-zone" id="dropZone">
+                            <div id="attachments" class="mb-2"></div>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="messageInput" placeholder="Type a message...">
+                                <div class="input-group-append">
+                                    <label class="btn btn-outline-secondary mb-0" for="fileInput">
+                                        <i class="fas fa-paperclip"></i>
+                                    </label>
+                                    <input type="file" id="fileInput" style="display: none" multiple>
+                                    <button type="submit" class="btn btn-primary">Send</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/EmojiReactionHandler.js') }}"></script>
+<script src="{{ url_for('static', filename='js/FileUploadHandler.js') }}"></script>
+<script src="{{ url_for('static', filename='js/MessageStatusHandler.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const emojiHandler = new EmojiReactionHandler();
+        
+        const fileHandler = new FileUploadHandler({
+            dropZoneId: 'dropZone',
+            fileInputId: 'fileInput',
+            messageInputId: 'messageInput',
+            maxFileSize: 5 * 1024 * 1024, // 5MB
+            allowedTypes: ['image/*', 'application/pdf', 'text/*']
+        });
+
+        const statusHandler = new MessageStatusHandler();
+        statusHandler.init({{ current_user.id }});
+
+        const messageForm = document.getElementById('messageForm');
+        const messageInput = document.getElementById('messageInput');
+        const messageContainer = document.getElementById('messageContainer');
+        
+        // Scroll to bottom on load
+        messageContainer.scrollTop = messageContainer.scrollHeight;
+
+        messageForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('content', messageInput.value);
+            formData.append('recipient_id', '{{ current_chat_user.id }}');
+            
+            fileHandler.attachments.forEach(file => {
+                formData.append('attachments[]', file);
+            });
+
+            try {
+                const response = await fetch('/send_message', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    messageInput.value = '';
+                    fileHandler.attachments = [];
+                    document.getElementById('attachments').innerHTML = '';
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+            }
+        });
+
+        // Typing indicator
+        let typingTimeout;
+        messageInput.addEventListener('input', () => {
+            fetch('/typing_status', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    recipient_id: '{{ current_chat_user.id }}',
+                    is_typing: true
+                })
+            });
+
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                fetch('/typing_status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        recipient_id: '{{ current_chat_user.id }}',
+                        is_typing: false
+                    })
+                });
+            }, 1000);
+        });
+    });
+</script>
+{% endblock %}

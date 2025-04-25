@@ -26,7 +26,7 @@
             <td>
                 <a href="{{ url_for('view_employee_profile', employee_id=employee.id) }}" class="btn btn-info btn-sm"><i class="fas fa-user"></i> View Profile</a>
                 <a href="{{ url_for('view_employee_attendance', employee_id=employee.id) }}" class="btn btn-info btn-sm"><i class="fas fa-calendar-check"></i> Attendance</a>
-                <a href="{{ url_for('send_message', recipient_id=employee.id) }}" class="btn btn-primary btn-sm"><i class="fas fa-envelope"></i> Send Message</a>
+                <a href="{{ url_for('chat', other_user_id=employee.id) }}" class="btn btn-primary btn-sm"><i class="fas fa-envelope"></i> Send Message</a>
                 <form method="POST" action="{{ url_for('delete_employee', employee_id=employee.id) }}" style="display: inline;">
                     <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete {{ employee.name }}?')"><i class="fas fa-trash"></i> Delete</button>
                 </form>

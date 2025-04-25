@@ -1,6 +1,5 @@
-<!-- templates/inbox.html -->
 {% extends "base.html" %}
-{% block title %}Inbox{% endblock %}
+{% block title %}Sent Messages{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -8,12 +7,12 @@
         <div class="col">
             <ul class="nav nav-pills">
                 <li class="nav-item">
-                    <a class="nav-link active" href="{{ url_for('inbox') }}">
+                    <a class="nav-link" href="{{ url_for('inbox') }}">
                         <i class="fas fa-inbox"></i> Inbox
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('sent_messages') }}">
+                    <a class="nav-link active" href="{{ url_for('sent_messages') }}">
                         <i class="fas fa-paper-plane"></i> Sent
                     </a>
                 </li>
@@ -27,8 +26,9 @@
                 <table class="table table-hover mb-0">
                     <thead class="bg-light">
                         <tr>
-                            <th>From</th>
+                            <th>To</th>
                             <th>Message</th>
+                            <th>Status</th>
                             <th>Time</th>
                             <th>Actions</th>
                         </tr>
@@ -38,30 +38,38 @@
                         <tr>
                             <td>
                                 <div class="d-flex align-items-center">
-                                    {% if message.sender.profile_picture %}
-                                    <img src="{{ url_for('static', filename='profile_pics/' + message.sender.profile_picture) }}" 
+                                    {% if message.recipient.profile_picture %}
+                                    <img src="{{ url_for('static', filename='profile_pics/' + message.recipient.profile_picture) }}" 
                                          class="rounded-circle mr-2" width="40" height="40">
                                     {% else %}
                                     <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mr-2" 
                                          style="width: 40px; height: 40px;">
-                                        {{ message.sender.name[:1] }}
+                                        {{ message.recipient.name[:1] }}
                                     </div>
                                     {% endif %}
                                     <div>
-                                        <strong>{{ message.sender.name }}</strong>
-                                        {% if not message.read %}
-                                        <span class="badge badge-primary ml-1">New</span>
-                                        {% endif %}
+                                        <strong>{{ message.recipient.name }}</strong>
                                     </div>
                                 </div>
                             </td>
                             <td>
-                                <a href="{{ url_for('chat', other_user_id=message.sender.id) }}" class="text-decoration-none text-dark">
+                                <a href="{{ url_for('chat', other_user_id=message.recipient.id) }}" class="text-decoration-none text-dark">
                                     {{ message.content[:100] }}{% if message.content|length > 100 %}...{% endif %}
                                     {% if message.attachments.count() > 0 %}
                                     <i class="fas fa-paperclip text-muted ml-1"></i>
                                     {% endif %}
                                 </a>
+                            </td>
+                            <td>
+                                {% if message.read %}
+                                <span class="text-success">
+                                    <i class="fas fa-check-double"></i> Read
+                                </span>
+                                {% else %}
+                                <span class="text-muted">
+                                    <i class="fas fa-check"></i> Delivered
+                                </span>
+                                {% endif %}
                             </td>
                             <td>
                                 <span title="{{ message.timestamp.strftime('%Y-%m-%d %I:%M %p') }}">
@@ -70,9 +78,9 @@
                             </td>
                             <td>
                                 <div class="btn-group">
-                                    <a href="{{ url_for('chat', other_user_id=message.sender.id) }}" 
+                                    <a href="{{ url_for('chat', other_user_id=message.recipient.id) }}" 
                                        class="btn btn-sm btn-outline-primary">
-                                        <i class="fas fa-reply"></i> Reply
+                                        <i class="fas fa-comment"></i> Chat
                                     </a>
                                     <form method="POST" action="{{ url_for('delete_message', message_id=message.id) }}" 
                                           class="d-inline" onsubmit="return confirm('Delete this message?');">
@@ -85,10 +93,10 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="4" class="text-center py-4">
+                            <td colspan="5" class="text-center py-4">
                                 <div class="text-muted">
-                                    <i class="fas fa-inbox fa-3x mb-3"></i>
-                                    <p>Your inbox is empty</p>
+                                    <i class="fas fa-paper-plane fa-3x mb-3"></i>
+                                    <p>No sent messages</p>
                                 </div>
                             </td>
                         </tr>

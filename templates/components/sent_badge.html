@@ -1,0 +1,11 @@
+{% macro render_sent_badge(message) %}
+<span class="message-badge {{ 'read' if message.read else '' }}">
+    {% if message.read %}
+    <i class="fas fa-check-double message-status-icon"></i>
+    Read
+    {% else %}
+    <i class="fas fa-check message-status-icon"></i>
+    Sent
+    {% endif %}
+</span>
+{% endmacro %}

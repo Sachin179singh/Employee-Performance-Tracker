@@ -1,9 +1,10 @@
 import os
+import mimetypes
 from werkzeug.utils import secure_filename
 import hashlib
 from datetime import datetime as dt
 import datetime
-from flask import Flask, render_template, url_for, flash, redirect, request
+from flask import Flask, render_template, url_for, flash, redirect, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from sqlalchemy import create_engine
@@ -39,12 +40,14 @@ def load_user(user_id):
 # Make employee data available to all templates
 @app.context_processor
 def inject_employee():
-    if current_user.is_authenticated:
-        return dict(employee=current_user)
-    return dict(employee=None)
+    def get_all_employees():
+        return Employee.query.filter(Employee.id != current_user.id).all() if current_user.is_authenticated else []
+    return dict(
+        employee=current_user if current_user.is_authenticated else None,
+        get_all_employees=get_all_employees
+    )
 
-# --- Database Models ---
-
+# --- Models ---
 
 class Employee(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
@@ -105,6 +108,29 @@ class Message(db.Model):
     recipient_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
     timestamp = db.Column(db.DateTime, default=dt.now(datetime.UTC), nullable=False)
     content = db.Column(db.Text, nullable=False)
+    read = db.Column(db.Boolean, default=False)
+    deleted_by_sender = db.Column(db.Boolean, default=False)
+    deleted_by_recipient = db.Column(db.Boolean, default=False)
+
+class MessageReaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey('message.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
+    emoji = db.Column(db.String(10), nullable=False)
+    timestamp = db.Column(db.DateTime, default=dt.now(datetime.UTC), nullable=False)
+
+    message = db.relationship('Message', backref=db.backref('reactions', lazy='dynamic'))
+    user = db.relationship('Employee', backref='message_reactions')
+
+class MessageAttachment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey('message.id'), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    file_type = db.Column(db.String(50))
+    file_size = db.Column(db.Integer)  # Size in bytes
+    timestamp = db.Column(db.DateTime, default=dt.now(datetime.UTC), nullable=False)
+
+    message = db.relationship('Message', backref='attachments')
 
 # --- Forms ---
 
@@ -146,7 +172,7 @@ class EmployeeForm(FlaskForm):
 
 class MessageForm(FlaskForm):
     content = TextAreaField('Message', validators=[DataRequired()])
-    submit = SubmitField('Send Message')
+    submit = SubmitField('Send')
 
 # --- Helper functions ---
 
@@ -155,6 +181,38 @@ def allowed_file(filename):
     """Check if the file extension is allowed."""
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+ALLOWED_MIME_TYPES = {
+    # Images
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    # Documents
+    'application/pdf': '.pdf',
+    'application/msword': '.doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+    'application/vnd.ms-excel': '.xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+    'text/plain': '.txt'
+}
+
+def validate_file_mime_type(file):
+    """Validate file MIME type and return appropriate extension if valid."""
+    try:
+        import magic
+        mime_type = magic.from_buffer(file.read(2048), mime=True)
+        file.seek(0)  # Reset file pointer after reading
+        
+        if mime_type in ALLOWED_MIME_TYPES:
+            return ALLOWED_MIME_TYPES[mime_type]
+        return None
+    except ImportError:
+        # Fallback to checking file extension if python-magic is not available
+        filename = file.filename.lower()
+        for mime_type, ext in ALLOWED_MIME_TYPES.items():
+            if filename.endswith(ext):
+                return ext
+        return None
 
 def is_admin():
     """Checks if the current user is an administrator."""
@@ -265,25 +323,292 @@ def meetings():
     meetings = Meeting.query.filter_by(employee_id=current_user.id).all()
     return render_template('meetings.html', meetings=meetings)
 
+# --- Message Routes ---
+
+@app.route("/api/messages/<int:other_user_id>")
+@login_required
+def get_new_messages(other_user_id):
+    after_id = request.args.get('after', type=int, default=0)
+    
+    messages = Message.query.filter(
+        Message.id > after_id,
+        ((Message.sender_id == current_user.id) & (Message.recipient_id == other_user_id) & (Message.deleted_by_sender == False)) |
+        ((Message.sender_id == other_user_id) & (Message.recipient_id == current_user.id) & (Message.deleted_by_recipient == False))
+    ).order_by(Message.timestamp.asc()).all()
+    
+    return jsonify({
+        'messages': [{
+            'id': msg.id,
+            'content': msg.content,
+            'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            'sender_id': msg.sender_id,
+            'sender_name': msg.sender.name
+        } for msg in messages]
+    })
+
+@app.route("/api/search_messages")
+@login_required
+def search_messages():
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify({'messages': []})
+    
+    messages = Message.query.filter(
+        ((Message.sender_id == current_user.id) & (Message.deleted_by_sender == False)) |
+        ((Message.recipient_id == current_user.id) & (Message.deleted_by_recipient == False)),
+        Message.content.ilike(f'%{query}%')
+    ).order_by(Message.timestamp.desc()).limit(20).all()
+    
+    return jsonify({
+        'messages': [{
+            'id': msg.id,
+            'content': msg.content,
+            'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            'sender_name': msg.sender.name,
+            'recipient_name': msg.recipient.name,
+            'is_sent': msg.sender_id == current_user.id,
+            'read': msg.read
+        } for msg in messages]
+    })
+
 @app.route("/inbox")
 @login_required
 def inbox():
-    messages = Message.query.filter(Message.recipient_id == current_user.id).order_by(Message.timestamp.desc()).all()
+    # Get unread messages first, then read messages
+    messages = Message.query.filter(
+        Message.recipient_id == current_user.id,
+        Message.deleted_by_recipient == False
+    ).order_by(Message.read.asc(), Message.timestamp.desc()).all()
+    
+    # Mark all messages as read
+    for message in messages:
+        if not message.read:
+            message.read = True
+    db.session.commit()
+    
     return render_template('inbox.html', messages=messages)
 
-@app.route("/send_message/<int:recipient_id>", methods=['GET', 'POST'])
+@app.route("/sent")
 @login_required
-def send_message(recipient_id):
-    form = MessageForm()
-    recipient = Employee.query.get_or_404(recipient_id)
-    if form.validate_on_submit():
-        new_message = Message(sender_id=current_user.id, recipient_id=recipient_id, content=form.content.data)
-        db.session.add(new_message)
-        db.session.commit()
-        flash('Message sent!', 'success')
-        return redirect(url_for('inbox'))
+def sent_messages():
+    messages = Message.query.filter(
+        Message.sender_id == current_user.id,
+        Message.deleted_by_sender == False
+    ).order_by(Message.timestamp.desc()).all()
+    return render_template('sent.html', messages=messages)
 
-    return render_template('send_message.html', form=form, recipient=recipient)
+@app.route("/chat/<int:other_user_id>")
+@login_required
+def chat(other_user_id):
+    other_user = Employee.query.get_or_404(other_user_id)
+    messages = Message.query.filter(
+        ((Message.sender_id == current_user.id) & (Message.recipient_id == other_user_id) & (Message.deleted_by_sender == False)) |
+        ((Message.sender_id == other_user_id) & (Message.recipient_id == current_user.id) & (Message.deleted_by_recipient == False))
+    ).order_by(Message.timestamp.asc()).all()
+    
+    # Mark messages as read
+    for message in messages:
+        if message.recipient_id == current_user.id and not message.read:
+            message.read = True
+    db.session.commit()
+    
+    form = MessageForm()
+    return render_template('chat.html', messages=messages, other_user=other_user, form=form)
+
+@app.route("/message/delete/<int:message_id>", methods=['POST'])
+@login_required
+def delete_message(message_id):
+    message = Message.query.get_or_404(message_id)
+    if message.sender_id == current_user.id:
+        message.deleted_by_sender = True
+    elif message.recipient_id == current_user.id:
+        message.deleted_by_recipient = True
+    
+    # If both sender and recipient have deleted the message, remove it from database
+    if message.deleted_by_sender and message.deleted_by_recipient:
+        db.session.delete(message)
+    
+    db.session.commit()
+    flash('Message deleted.', 'success')
+    return redirect(request.referrer or url_for('inbox'))
+
+@app.route("/api/send_message/<int:recipient_id>", methods=['POST'])
+@login_required
+def api_send_message(recipient_id):
+    content = request.form.get('content', '').strip()
+    attachments = request.form.getlist('attachments[]')
+    
+    if not content and not attachments:
+        return jsonify({'error': 'Message content or attachments are required'}), 400
+    
+    # Create the message
+    new_message = Message(
+        sender_id=current_user.id,
+        recipient_id=recipient_id,
+        content=content
+    )
+    db.session.add(new_message)
+    db.session.flush()  # Get message ID before committing
+    
+    # Handle attachments
+    message_attachments = []
+    for filename in attachments:
+        # Verify the file exists
+        file_path = os.path.join(app.root_path, 'static', 'attachments', filename)
+        if os.path.exists(file_path):
+            attachment = MessageAttachment(
+                message_id=new_message.id,
+                filename=filename,
+                file_type=mimetypes.guess_type(filename)[0],
+                file_size=os.path.getsize(file_path)
+            )
+            message_attachments.append(attachment)
+            db.session.add(attachment)
+    
+    db.session.commit()
+    
+    # Format attachments for response
+    attachment_data = [{
+        'filename': att.filename,
+        'original_name': att.filename.split('_', 1)[1],  # Remove timestamp prefix
+        'file_type': att.file_type,
+        'file_size': att.file_size
+    } for att in message_attachments]
+    
+    return jsonify({
+        'id': new_message.id,
+        'content': new_message.content,
+        'timestamp': new_message.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+        'sender_name': current_user.name,
+        'attachments': attachment_data
+    })
+
+@app.route("/api/check_notifications")
+@login_required
+def check_notifications():
+    # Get unread messages
+    unread_messages = Message.query.filter(
+        Message.recipient_id == current_user.id,
+        Message.read == False,
+        Message.deleted_by_recipient == False
+    ).order_by(Message.timestamp.desc()).all()
+    
+    # Format messages for the response
+    messages = [{
+        'id': msg.id,
+        'content': msg.content,
+        'sender_name': msg.sender.name,
+        'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+    } for msg in unread_messages]
+    
+    return jsonify({
+        'unread_count': len(unread_messages),
+        'new_messages': messages
+    })
+
+@app.route("/api/messages/<int:message_id>/react", methods=['POST'])
+@login_required
+def react_to_message(message_id):
+    emoji = request.form.get('emoji')
+    if not emoji:
+        return jsonify({'error': 'Emoji is required'}), 400
+        
+    message = Message.query.get_or_404(message_id)
+    
+    # Check if user already reacted with this emoji
+    existing_reaction = MessageReaction.query.filter_by(
+        message_id=message_id,
+        user_id=current_user.id,
+        emoji=emoji
+    ).first()
+    
+    if existing_reaction:
+        # Remove reaction if it already exists (toggle behavior)
+        db.session.delete(existing_reaction)
+        db.session.commit()
+        return jsonify({'status': 'removed'})
+    
+    # Add new reaction
+    reaction = MessageReaction(
+        message_id=message_id,
+        user_id=current_user.id,
+        emoji=emoji
+    )
+    db.session.add(reaction)
+    db.session.commit()
+    
+    return jsonify({
+        'status': 'added',
+        'reaction': {
+            'id': reaction.id,
+            'emoji': emoji,
+            'user_name': current_user.name
+        }
+    })
+
+@app.route("/api/message_statuses")
+@login_required
+def check_message_statuses():
+    since = request.args.get('since')
+    if not since:
+        return jsonify({'error': 'Missing since parameter'}), 400
+    
+    try:
+        since_dt = datetime.datetime.fromisoformat(since.replace('Z', '+00:00'))
+    except ValueError:
+        return jsonify({'error': 'Invalid date format'}), 400
+    
+    # Get status updates for sent messages
+    messages = Message.query.filter(
+        Message.sender_id == current_user.id,
+        Message.timestamp >= since_dt
+    ).all()
+    
+    updates = [{
+        'message_id': msg.id,
+        'delivered': True,  # Message exists in DB so it's delivered
+        'read': msg.read,
+        'timestamp': msg.timestamp.isoformat()
+    } for msg in messages]
+    
+    return jsonify({'updates': updates})
+
+@app.route("/api/messages/upload", methods=['POST'])
+@login_required
+def upload_message_attachment():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    # Validate file type
+    file_ext = validate_file_mime_type(file)
+    if not file_ext:
+        return jsonify({'error': 'Invalid file type'}), 400
+    
+    # Create attachments directory if it doesn't exist
+    attachments_dir = os.path.join(app.root_path, 'static', 'attachments')
+    os.makedirs(attachments_dir, exist_ok=True)
+    
+    # Save file with unique name and correct extension
+    filename = secure_filename(f"{int(time.time())}_{file.filename}")
+    base_name = os.path.splitext(filename)[0]
+    safe_filename = f"{base_name}{file_ext}"
+    file_path = os.path.join(attachments_dir, safe_filename)
+    file.save(file_path)
+    
+    # Get file size and type
+    file_size = os.path.getsize(file_path)
+    file_type = file.content_type
+    
+    return jsonify({
+        'filename': safe_filename,
+        'original_name': file.filename,
+        'file_type': file_type,
+        'file_size': file_size
+    })
 
 # --- Admin Routes ---
 
@@ -411,7 +736,7 @@ def update_profile_picture():
             old_file = os.path.join(app.root_path, app.config['UPLOAD_FOLDER'], current_user.profile_picture)
             if os.path.exists(old_file):
                 os.remove(old_file)
-        
+
         # Save new profile picture
         filename = secure_filename(f"{current_user.employee_id}_{file.filename}")
         file.save(os.path.join(app.root_path, app.config['UPLOAD_FOLDER'], filename))
@@ -435,13 +760,19 @@ def start_server():
 if __name__ == '__main__':
     # --- Database setup ---
     with app.app_context():
-        #db.drop_all() # ONLY UNCOMMENT THIS IF YOU WANT TO RESET THE DB, DO NOT RUN IN PRODUCTION
+        db.drop_all()  # Reset database during development
         db.create_all()
         # Create admin user if it doesn't exist
         admin_user = Employee.query.filter_by(employee_id='admin').first()
         if not admin_user:
-            admin_user = Employee(employee_id='admin', name='Harsh Raj Jaiswal', email='admin@example.com', role='admin', mobile_number='7754938396')  # Included mobile number
-            admin_user.set_password('password')  # USE A STRONG PASSWORD!
+            admin_user = Employee(
+                employee_id='admin',
+                name='Harsh Raj Jaiswal',
+                email='admin@example.com',
+                role='admin',
+                mobile_number='7754938396'
+            )
+            admin_user.set_password('password')
             db.session.add(admin_user)
             db.session.commit()
         start_server()

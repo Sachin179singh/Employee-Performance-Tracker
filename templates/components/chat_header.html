@@ -1,0 +1,15 @@
+{% macro render_chat_header() %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+        <h1 class="h3 mb-0">Messages</h1>
+    </div>
+    <div class="btn-group">
+        <a href="{{ url_for('inbox') }}" class="btn btn-outline-primary">
+            <i class="fas fa-inbox"></i> Inbox
+        </a>
+        <a href="{{ url_for('sent_messages') }}" class="btn btn-outline-primary">
+            <i class="fas fa-paper-plane"></i> Sent
+        </a>
+    </div>
+</div>
+{% endmacro %}

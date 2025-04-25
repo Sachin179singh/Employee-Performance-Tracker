@@ -12,6 +12,7 @@
         crossorigin="anonymous" referrerpolicy="no-referrer" />
 
     <link rel="stylesheet" href="/static/css/sleek.css">
+    <link href="/static/css/messages.css" rel="stylesheet" />
     <!-- GOOGLE FONTS -->
     <link href="https://fonts.googleapis.com/css?family=Montserrat:400,500|Poppins:400,500,600,700|Roboto:400,500"
         rel="stylesheet" />
@@ -119,7 +120,13 @@
                         <li>
                             <a class="sidenav-item-link" href="/inbox">
                                 <i class="mdi mdi-email"></i>
-                                <span class="nav-text">Inbox</span>
+                                <span class="nav-text">Messages</span>
+                                {% if current_user.is_authenticated %}
+                                    {% set unread_count = current_user.messages_received|selectattr('read', 'eq', false)|list|length %}
+                                    {% if unread_count > 0 %}
+                                        <span class="badge badge-danger badge-pill">{{ unread_count }}</span>
+                                    {% endif %}
+                                {% endif %}
                             </a>
                         </li>
                         <li>
@@ -217,9 +224,7 @@
     <script src="https://cdn.jsdelivr.net/npm/simplebar@latest/dist/simplebar.min.js"></script>
     <!-- Include SimpleBar CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simplebar@latest/dist/simplebar.min.css">
-
-
-
-</body>
-
+    <script src="{{ url_for('static', filename='js/notifications.js') }}"></script>
+    {% block scripts %}{% endblock %}
+    </body>
 </html>

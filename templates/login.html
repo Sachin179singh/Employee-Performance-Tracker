@@ -1,120 +1,94 @@
-{% extends "base.html" %}
-{% block title %}Login{% endblock %}
-{% block content %}
-<div class="container-fluid min-vh-90 d-flex">
-    <!-- Left Side - Image -->
-    <div class="col-md-6 d-none d-md-flex align-items-center justify-content-center bg-light p-0">
-        <img src="https://dfinance.world/assets/images/crypto/login.png" alt="Login Image" class="img-fluid w-100 h-100 object-fit-cover">
-    </div>
-    
-    <!-- Right Side - Login Form -->
-    <div class="col-md-6 d-flex align-items-center justify-content-center p-5 bg-white">
-        <div class="w-100 shadow-lg rounded p-4" style="max-width: 400px;">
-            <div class="text-center mb-4">
-                <div class="avatar-circle mb-3">
-                    <i class="fas fa-user-circle fa-3x"></i>
-                </div>
-                <h2 class="fw-bold">Welcome Back</h2>
-                <p class="text-muted">Please login to your account</p>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Employee Login - Digipodium</title>
+
+  <!-- GOOGLE FONTS -->
+  <link href="https://fonts.googleapis.com/css?family=Montserrat:400,500|Poppins:400,500,600,700|Roboto:400,500" rel="stylesheet" />
+  <link href="https://cdn.materialdesignicons.com/4.4.95/css/materialdesignicons.min.css" rel="stylesheet" />
+
+  <!-- PLUGINS CSS STYLE -->
+  <link href="/static/plugins/nprogress/nprogress.css" rel="stylesheet" />
+
+  <!-- SLEEK CSS -->
+  <link id="sleek-css" rel="stylesheet" href="/static/css/sleek.css" />
+
+  <!-- FAVICON -->
+  <link href="/static/img/favicon.png" rel="shortcut icon" />
+
+  <script src="/static/plugins/nprogress/nprogress.js"></script>
+</head>
+
+<body class="bg-light-gray" id="body">
+  <div class="container d-flex align-items-center justify-content-center min-vh-100">
+    <div class="row justify-content-center">
+      <div class="col-lg-6 col-md-10">
+        <div class="card">
+          <div class="card-header bg-primary">
+            <div class="app-brand">
+              <a href="/">
+                <span class="brand-name text-white">Digipodium</span>
+              </a>
             </div>
-            <form method="POST" novalidate>
-                {{ form.hidden_tag() }}
-                <div class="form-group mb-4">
-                    <label for="employee_id" class="form-label fw-bold">Employee ID</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light"><i class="fas fa-id-badge text-primary"></i></span>
-                        {{ form.employee_id(class="form-control", placeholder="Enter your Employee ID") }}
-                    </div>
+          </div>
+
+          <div class="card-body p-5">
+            <h4 class="text-dark mb-5">Sign In</h4>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+              {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                  {{ message }}
+                  <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                  </button>
                 </div>
-                <div class="form-group mb-4">
-                    <label for="password" class="form-label fw-bold">Password</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light"><i class="fas fa-lock text-primary"></i></span>
-                        {{ form.password(class="form-control", placeholder="Enter your password") }}
-                    </div>
+                {% endfor %}
+              {% endif %}
+            {% endwith %}
+
+            <form method="POST" action="">
+              {{ form.hidden_tag() }}
+              
+              <div class="row">
+                <div class="form-group col-md-12 mb-4">
+                  {{ form.employee_id(class="form-control input-lg") }}
+                  {% for error in form.employee_id.errors %}
+                  <span class="text-danger">{{ error }}</span>
+                  {% endfor %}
                 </div>
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="rememberMe">
-                        <label class="form-check-label" for="rememberMe">Remember me</label>
-                    </div>
-                    <a href="#" class="text-primary text-decoration-none">Forgot password?</a>
+
+                <div class="form-group col-md-12 ">
+                  {{ form.password(class="form-control input-lg") }}
+                  {% for error in form.password.errors %}
+                  <span class="text-danger">{{ error }}</span>
+                  {% endfor %}
                 </div>
-                <button type="submit" class="btn btn-primary btn-lg w-100">
-                    <i class="fas fa-sign-in-alt me-2"></i> Login
-                </button>
-                <!--<p class="text-center mt-3 mb-0">Don't have an account? <a href="#" class="text-primary text-decoration-none">Sign up</a></p>-->
+
+                <div class="col-md-12">
+                  <div class="d-flex justify-content-between mb-3">
+                    <div class="custom-control custom-checkbox mr-3 mb-3">
+                      <input type="checkbox" class="custom-control-input" id="customCheck2">
+                      <label class="custom-control-label" for="customCheck2">Remember me</label>
+                    </div>
+                  </div>
+
+                  {{ form.submit(class="btn btn-lg btn-primary btn-block mb-4") }}
+                </div>
+              </div>
             </form>
+          </div>
         </div>
+      </div>
     </div>
-</div>
+  </div>
 
-<style>
-:root {
-    --primary-color: #0d6efd;
-    --primary-hover: #0b5ed7;
-}
-
-.avatar-circle {
-    width: 80px;
-    height: 80px;
-    background-color: var(--primary-color);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto;
-}
-
-.avatar-circle i {
-    color: white;
-    font-size: 2.5rem;
-}
-
-.input-group-text {
-    border: 1px solid #dee2e6;
-    border-right: none;
-    padding: 0.75rem 1rem;
-}
-
-.form-control {
-    border-left: none;
-    padding: 0.75rem 1rem;
-    font-size: 1rem;
-}
-
-.form-control:focus {
-    box-shadow: none;
-    border-color: var(--primary-color);
-}
-
-.btn-primary {
-    background-color: var(--primary-color);
-    border-color: var(--primary-color);
-    border-radius: 0.5rem;
-    font-weight: 600;
-    padding: 0.75rem;
-    transition: all 0.3s ease;
-}
-
-.btn-primary:hover {
-    background-color: var(--primary-hover);
-    border-color: var(--primary-hover);
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-}
-
-@media (max-width: 768px) {
-    .container-fluid {
-        flex-direction: column;
-    }
-    .col-md-6 {
-        width: 100%;
-    }
-    .col-md-6 img {
-        height: 300px;
-        object-fit: cover;
-    }
-}
-</style>
-{% endblock %}
+  <script src="/static/plugins/jquery/jquery.min.js"></script>
+  <script src="/static/plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
+  <script src="/static/js/sleek.js"></script>
+</body>
+</html>

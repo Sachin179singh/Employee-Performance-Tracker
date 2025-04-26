@@ -1,54 +1,48 @@
 import os
-import mimetypes
-from werkzeug.utils import secure_filename
-import hashlib
-from datetime import datetime as dt
-import datetime
-from flask import Flask, render_template, url_for, flash, redirect, request, jsonify
+from datetime import datetime, date, timedelta
+import datetime as dt
+from calendar import monthrange, Calendar
+from flask import Flask, render_template, url_for, flash, redirect, request, session, jsonify
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask import g
+from flask import session
 from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import webview
 import threading
 import time
-import bcrypt
+from flask_session import Session  # pip install Flask-Session
+import bcrypt  # pip install bcrypt
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SubmitField, DateField, TimeField, TextAreaField, SelectField
+from wtforms import StringField, PasswordField, SubmitField, DateField, TimeField, TextAreaField, SelectField, HiddenField, BooleanField
 from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_wtf.csrf import CSRFProtect, CSRFError
+from flask_wtf.file import FileAllowed, FileField
+from PIL import Image
+import secrets
+from datetime import datetime, date, time
+from flask_migrate import Migrate
+
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///company.db'
-app.config['SECRET_KEY'] = os.urandom(24)
-app.config['UPLOAD_FOLDER'] = 'static/profile_pics'
-app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024  # 1MB max file size
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))  # Environment variable for security
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_TYPE"] = "filesystem"
+
+csrf = CSRFProtect(app)  # Initialize CSRF protection
+app.config['CSRF_ENABLED'] = True  # Enable CSRF protection
 
 db = SQLAlchemy(app)
-migrate = Migrate(app, db)
+migrate = Migrate(app, db)  # Initialize Flask-Migrate
+Session(app)  # Initialize Flask-Session
 
-# Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'
-login_manager.login_message_category = 'info'
+login_manager.login_view = 'login'  # Where to redirect unauthenticated users
 
-@login_manager.user_loader
-def load_user(user_id):
-    return Employee.query.get(int(user_id))
-
-# Make employee data available to all templates
-@app.context_processor
-def inject_employee():
-    def get_all_employees():
-        return Employee.query.filter(Employee.id != current_user.id).all() if current_user.is_authenticated else []
-    return dict(
-        employee=current_user if current_user.is_authenticated else None,
-        get_all_employees=get_all_employees
-    )
-
-# --- Models ---
-
+# --- Database Models ---
 class Employee(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.String(20), unique=True, nullable=False)
@@ -56,8 +50,8 @@ class Employee(db.Model, UserMixin):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(60), nullable=False)  # Store hash, not plaintext!
     role = db.Column(db.String(20), default='employee')  # 'admin' or 'employee'
+    profile_picture = db.Column(db.String(255), nullable=True)
     mobile_number = db.Column(db.String(20))  # New mobile_number column
-    profile_picture = db.Column(db.String(120), default='default.jpg')  # Profile picture filename
     attendance = db.relationship('Attendance', backref='employee', lazy=True)
     messages_sent = db.relationship('Message', backref='sender', foreign_keys='[Message.sender_id]', lazy=True)
     messages_received = db.relationship('Message', backref='recipient', foreign_keys='[Message.recipient_id]', lazy=True)
@@ -75,8 +69,18 @@ class Employee(db.Model, UserMixin):
         return bcrypt.checkpw(password.encode('utf-8'), self.password.encode('utf-8'))
 
     def is_admin(self):
-        """Helper method to check if user is admin"""
         return self.role == 'admin'
+
+
+class Chat(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=True)  # Nullable for "everyone"
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    content = db.Column(db.Text, nullable=False)
+
+    sender = db.relationship('Employee', foreign_keys=[sender_id], backref='chats_sent')
+    recipient = db.relationship('Employee', foreign_keys=[recipient_id], backref='chats_received')
 
 
 class Attendance(db.Model):
@@ -84,10 +88,9 @@ class Attendance(db.Model):
     employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
     date = db.Column(db.Date, nullable=False)
     time_in = db.Column(db.Time)
-    time_out = db.Column(db.Time)
 
     def __repr__(self):
-        return f"Attendance('{self.date}', '{self.time_in}', '{self.time_out}')"    
+        return f"Attendance('{self.date}', '{self.time_in}')"
 
 
 class Meeting(db.Model):
@@ -97,6 +100,7 @@ class Meeting(db.Model):
     date = db.Column(db.DateTime, nullable=False)
     location = db.Column(db.String(100))
     description = db.Column(db.Text)
+    event_type = db.Column(db.String(20), default='personal')  # Add event_type column
 
     def __repr__(self):
         return f"Meeting('{self.title}', '{self.date}')"
@@ -106,40 +110,38 @@ class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     sender_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
     recipient_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
-    timestamp = db.Column(db.DateTime, default=dt.now(datetime.UTC), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     content = db.Column(db.Text, nullable=False)
-    read = db.Column(db.Boolean, default=False)
-    deleted_by_sender = db.Column(db.Boolean, default=False)
-    deleted_by_recipient = db.Column(db.Boolean, default=False)
 
-class MessageReaction(db.Model):
+
+class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    message_id = db.Column(db.Integer, db.ForeignKey('message.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
-    emoji = db.Column(db.String(10), nullable=False)
-    timestamp = db.Column(db.DateTime, default=dt.now(datetime.UTC), nullable=False)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    due_date = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending, completed
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    message = db.relationship('Message', backref=db.backref('reactions', lazy='dynamic'))
-    user = db.relationship('Employee', backref='message_reactions')
+    def __repr__(self):
+        return f"Task('{self.title}', '{self.due_date}', '{self.status}')"
 
-class MessageAttachment(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    message_id = db.Column(db.Integer, db.ForeignKey('message.id'), nullable=False)
-    filename = db.Column(db.String(255), nullable=False)
-    file_type = db.Column(db.String(50))
-    file_size = db.Column(db.Integer)  # Size in bytes
-    timestamp = db.Column(db.DateTime, default=dt.now(datetime.UTC), nullable=False)
 
-    message = db.relationship('Message', backref='attachments')
+# Add relationship to Employee model
+Employee.tasks = db.relationship('Task', backref='assigned_to', lazy=True)
 
 # --- Forms ---
 
+class ChatForm(FlaskForm):
+    content = TextAreaField('Message', validators=[DataRequired()])
+    recipient_id = SelectField('Send To', coerce=int, choices=[(0, 'Everyone')], validators=[DataRequired()])
+    submit = SubmitField('Send')
 
 class LoginForm(FlaskForm):
-    employee_id = StringField('Employee ID', validators=[DataRequired()])
-    password = PasswordField('Password', validators=[DataRequired()])
+    employee_id = StringField('Employee ID', validators=[DataRequired()],render_kw={'placeholder': 'Employee ID'})
+    password = PasswordField('Password', validators=[DataRequired()],render_kw={'placeholder': 'Password'})
+    # remember = BooleanField('Remember Me')
     submit = SubmitField('Login')
-
 
 class MeetingForm(FlaskForm):
     title = StringField('Title', validators=[DataRequired()])
@@ -147,14 +149,14 @@ class MeetingForm(FlaskForm):
     time = TimeField('Time', validators=[DataRequired()])
     location = StringField('Location')
     description = TextAreaField('Description')
+    event_type = SelectField('Event Type', choices=[('personal', 'Personal'), ('business', 'Business'), ('family', 'Family'), ('holiday', 'Holiday'), ('etc', 'ETC')])
     submit = SubmitField('Create Meeting')
-
 
 class EmployeeForm(FlaskForm):
     employee_id = StringField('Employee ID', validators=[DataRequired()])
     name = StringField('Name', validators=[DataRequired()])
     email = StringField('Email', validators=[DataRequired(), Email()])
-    password = PasswordField('Password', validators=[DataRequired(), Length(min=8)])
+    password = PasswordField('Password', validators=[DataRequired(), Length(min=8,message="Password must be atleast 8 characters long")])
     role = SelectField('Role', choices=[('employee', 'Employee'), ('admin', 'Admin')], validators=[DataRequired()])
     mobile_number = StringField('Mobile Number')  # New mobile_number field
     submit = SubmitField('Create Employee')
@@ -168,77 +170,81 @@ class EmployeeForm(FlaskForm):
         employee = Employee.query.filter_by(email=email.data).first()
         if employee:
             raise ValidationError('That email is already taken.')
-
+    
+    
 
 class MessageForm(FlaskForm):
     content = TextAreaField('Message', validators=[DataRequired()])
-    submit = SubmitField('Send')
+    submit = SubmitField('Send Message')
 
-# --- Helper functions ---
+class AttendanceForm(FlaskForm):
+    date = HiddenField('Date', validators=[DataRequired()])
+
+class EditProfileForm(FlaskForm):
+    name = StringField('Name', validators=[DataRequired()])
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    mobile_number = StringField('Mobile Number')
+    profile_picture = FileField('Update Profile Picture', validators=[FileAllowed(['jpg', 'jpeg', 'png'], 'Images only!')])
+    submit = SubmitField('Update Profile')
+
+    def validate_email(self, email):
+        employee = Employee.query.filter_by(email=email.data).first()
+        if employee is not None and employee.id != current_user.id:
+            raise ValidationError('That email is already taken.')
+
+class ChangePasswordForm(FlaskForm):
+    old_password = PasswordField('Old Password', validators=[DataRequired()])
+    new_password = PasswordField('New Password', validators=[DataRequired(), Length(min=8)])
+    confirm_password = PasswordField('Confirm New Password', validators=[DataRequired(), EqualTo('new_password')])
+    submit = SubmitField('Change Password')
 
 
-def allowed_file(filename):
-    """Check if the file extension is allowed."""
-    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-ALLOWED_MIME_TYPES = {
-    # Images
-    'image/jpeg': '.jpg',
-    'image/png': '.png',
-    'image/gif': '.gif',
-    # Documents
-    'application/pdf': '.pdf',
-    'application/msword': '.doc',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-    'application/vnd.ms-excel': '.xls',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-    'text/plain': '.txt'
-}
-
-def validate_file_mime_type(file):
-    """Validate file MIME type and return appropriate extension if valid."""
+def save_picture(form_picture):
+    # 1. Open the image using Pillow
     try:
-        import magic
-        mime_type = magic.from_buffer(file.read(2048), mime=True)
-        file.seek(0)  # Reset file pointer after reading
-        
-        if mime_type in ALLOWED_MIME_TYPES:
-            return ALLOWED_MIME_TYPES[mime_type]
+        img = Image.open(form_picture)
+    except Exception as e:
+        print(f"Error opening image: {e}")
+        return None  # Or raise the exception, depending on how you want to handle it
+    random_hex = secrets.token_hex(8)
+    _, f_ext = os.path.splitext(form_picture.filename)
+    picture_fn = random_hex + f_ext
+    picture_path = os.path.join(app.root_path, 'static','profile_pics', picture_fn)
+
+    try:
+        img.save(picture_path) # This saves to filepath rather than raw bytes into the databas
+        return picture_fn # only return the filename
+    except Exception as e:
+        print(f"Error saving image: {e}")
         return None
-    except ImportError:
-        # Fallback to checking file extension if python-magic is not available
-        filename = file.filename.lower()
-        for mime_type, ext in ALLOWED_MIME_TYPES.items():
-            if filename.endswith(ext):
-                return ext
-        return None
 
-def is_admin():
-    """Checks if the current user is an administrator."""
-    return current_user.is_authenticated and current_user.role == 'admin'
+    return picture_path #return file path
 
 
+@app.context_processor
+def inject_user():
+    return dict(current_user=current_user)
+
+
+#Flask-Login
+@login_manager.user_loader
+def load_user(user_id):
+    return Employee.query.get(int(user_id))
 # --- Authentication Routes ---
-
-
 @app.route("/", methods=['GET', 'POST'])
 @app.route("/login", methods=['GET', 'POST'])
+@csrf.exempt
 def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('profile'))
     form = LoginForm()
     if form.validate_on_submit():
         employee = Employee.query.filter_by(employee_id=form.employee_id.data).first()
         if employee and employee.check_password(form.password.data):
             login_user(employee)
             flash('Login successful!', 'success')
-            next_page = request.args.get('next')
-            return redirect(next_page) if next_page else redirect(url_for('profile'))
+            return redirect(url_for('profile'))
         else:
             flash('Login failed. Please check your credentials.', 'danger')
     return render_template('login.html', form=form)
-
 
 @app.route("/logout")
 @login_required
@@ -249,374 +255,161 @@ def logout():
 
 # --- Employee Routes ---
 
+@app.route("/dashboard", methods=['GET', 'POST'])
+@login_required
+def dashboard():
+    employee = current_user
+    form = AttendanceForm()
+    today = date.today()  # Get today's date
+    
+    # Get the current month's attendance
+    current_month = today.replace(day=1)
+    next_month = (current_month + timedelta(days=32)).replace(day=1)
+    monthly_attendance = Attendance.query.filter_by(employee_id=employee.id)\
+        .filter(Attendance.date >= current_month)\
+        .filter(Attendance.date < next_month).all()
+    
+    # Create attendance dict for calendar
+    attendance_by_day = {}
+    for att in monthly_attendance:
+        day = att.date.day
+        attendance_by_day[day] = att
 
-@app.route("/profile")
+    # Get tasks 
+    tasks = Task.query.filter_by(employee_id=employee.id).order_by(Task.due_date.asc()).limit(5).all()
+    pending_tasks = Task.query.filter_by(employee_id=employee.id, status='pending').count()
+    completed_tasks = Task.query.filter_by(employee_id=employee.id, status='completed').count()
+    
+    # Check if attendance is marked for today
+    attendance_marked = Attendance.query.filter_by(employee_id=employee.id, date=today).first()
+
+    # Get calendar days
+    cal = Calendar()
+    days = [d for d in cal.itermonthdates(today.year, today.month)]
+
+    return render_template('dashboard.html',
+                         employee=current_user,
+                         form=form,
+                         attendance_marked=attendance_marked,
+                         days=days,
+                         today=today,  # Pass today to template
+                         attendance_by_day=attendance_by_day,
+                         tasks=tasks,
+                         pending_tasks=pending_tasks,
+                         completed_tasks=completed_tasks)
+
+
+@app.route("/profile", methods=['GET', 'POST'])
 @login_required
 def profile():
-    # Get current month and year
-    today = dt.now(datetime.UTC)
-    month_year = today.strftime('%B %Y')
+    employee = current_user
+    attendance = AttendanceForm()
+    today = date.today()  # Get today's date
+    #check if Attendance is already marked or not
+    attendance_marked = Attendance.query.filter_by(employee_id=employee.id, date=today).first()
+
+    # Fetch upcoming meetings
+    now = datetime.now(dt.UTC)
+    meetings = Meeting.query.filter_by(employee_id=employee.id).filter(Meeting.date >= now).order_by(Meeting.date).limit(5).all()# Limit to 5 upcoming meetings
     
-    # Calculate calendar days for current month
-    calendar_days = []
-    first_day = today.replace(day=1)
-    last_day = (first_day.replace(month=first_day.month % 12 + 1, day=1) - datetime.timedelta(days=1))
     
-    # Get all attendance records for current month
-    month_attendance = Attendance.query.filter(
-        Attendance.employee_id == current_user.id,
-        Attendance.date >= first_day.date(),
-        Attendance.date <= last_day.date()
-    ).all()
-    
-    # Create attendance lookup dictionary
-    attendance_lookup = {att.date: att for att in month_attendance}
-    
-    # Generate calendar days with attendance status
-    current_date = first_day
-    while current_date <= last_day:
-        day_data = {
-            'date': current_date.day,
-            'is_weekend': current_date.weekday() >= 5,
-            'status': 'weekend' if current_date.weekday() >= 5 else None
-        }
-        
-        if not day_data['is_weekend']:
-            attendance = attendance_lookup.get(current_date.date())
-            if attendance:
-                # Calculate work duration if both time_in and time_out exist
-                if attendance.time_in and attendance.time_out:
-                    duration = datetime.datetime.combine(datetime.date.min, attendance.time_out) - \
-                              datetime.datetime.combine(datetime.date.min, attendance.time_in)
-                    hours_worked = duration.total_seconds() / 3600
-                    
-                    if hours_worked >= 8:
-                        day_data['status'] = 'present'
-                    elif hours_worked >= 4:
-                        day_data['status'] = 'half-day'
-                    else:
-                        day_data['status'] = 'absent'
-                else:
-                    day_data['status'] = 'absent'
-            else:
-                if current_date.date() < today.date():
-                    day_data['status'] = 'absent'
-        
-        calendar_days.append(day_data)
-        current_date += datetime.timedelta(days=1)
-    
-    # Fetch only upcoming meetings for the dashboard
-    now = dt.now(datetime.UTC)
-    meetings = Meeting.query.filter_by(employee_id=current_user.id).filter(Meeting.date >= now).order_by(Meeting.date).limit(5).all()
-    
-    return render_template('profile.html', meetings=meetings, calendar_days=calendar_days, month_year=month_year)
+    form = EditProfileForm(obj=current_user)  # Initialize form with current user data
+    users = Employee.query.all()
+    if form.validate_on_submit():
+        if form.profile_picture.data: # Check if the image has been changed
+            picture_file = save_picture(form.profile_picture.data)
+            if picture_file:
+                current_user.profile_picture = picture_file #save filename to db
+
+        current_user.name = form.name.data
+        current_user.email = form.email.data
+        current_user.mobile_number = form.mobile_number.data
+        db.session.commit()
+        flash('Your profile has been updated!', 'success')
+        return redirect(url_for('profile'))
+    return render_template('profile.html', employee=employee, meetings=meetings, form=form, attendance_marked = attendance_marked, users = users, attendance = attendance)
+
+#@login_required
+@app.route("/mark_attendance/<int:employee_id>", methods=['POST'])
+@login_required
+def mark_attendance(employee_id):
+    if current_user.id != employee_id:
+        return jsonify({'message': 'Unauthorized', 'status': 'error'}), 403
+    try:
+        today = date.today()
+        user = Employee.query.get(employee_id)
+
+        if not user:
+            return jsonify({'message': 'Invalid employee ID!', 'status': 'error'}), 400
+
+        employee_id = user.id
+        attendance_marked = Attendance.query.filter_by(employee_id=employee_id, date=today).first()
+
+        if not attendance_marked:
+            new_attendance = Attendance(
+                employee_id=employee_id,
+                date=today,
+                time_in=datetime.now().time() # Adjusted datetime handling
+            )
+            db.session.add(new_attendance)
+            db.session.commit()
+            return jsonify({'message': 'Attendance marked successfully!', 'status': 'success'})
+        else:
+            return jsonify({'message': 'Attendance already marked!', 'status': 'info'})
+    except Exception as e:
+        print('Error:', e)  # Log error for debugging
+        return jsonify({'message': 'An error occurred.', 'status': 'error'}), 500
 
 @app.route("/attendance")
 @login_required
 def attendance():
-    attendances = Attendance.query.filter_by(employee_id=current_user.id).all()
+    employee = current_user
+    attendances = Attendance.query.filter_by(employee_id=employee.id).all()
     return render_template('attendance.html', attendances=attendances)
 
 @app.route("/meetings")
 @login_required
 def meetings():
-    meetings = Meeting.query.filter_by(employee_id=current_user.id).all()
+    employee = current_user
+    meetings = Meeting.query.filter_by(employee_id=employee.id).all()
     return render_template('meetings.html', meetings=meetings)
-
-# --- Message Routes ---
-
-@app.route("/api/messages/<int:other_user_id>")
-@login_required
-def get_new_messages(other_user_id):
-    after_id = request.args.get('after', type=int, default=0)
-    
-    messages = Message.query.filter(
-        Message.id > after_id,
-        ((Message.sender_id == current_user.id) & (Message.recipient_id == other_user_id) & (Message.deleted_by_sender == False)) |
-        ((Message.sender_id == other_user_id) & (Message.recipient_id == current_user.id) & (Message.deleted_by_recipient == False))
-    ).order_by(Message.timestamp.asc()).all()
-    
-    return jsonify({
-        'messages': [{
-            'id': msg.id,
-            'content': msg.content,
-            'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-            'sender_id': msg.sender_id,
-            'sender_name': msg.sender.name
-        } for msg in messages]
-    })
-
-@app.route("/api/search_messages")
-@login_required
-def search_messages():
-    query = request.args.get('q', '')
-    if not query:
-        return jsonify({'messages': []})
-    
-    messages = Message.query.filter(
-        ((Message.sender_id == current_user.id) & (Message.deleted_by_sender == False)) |
-        ((Message.recipient_id == current_user.id) & (Message.deleted_by_recipient == False)),
-        Message.content.ilike(f'%{query}%')
-    ).order_by(Message.timestamp.desc()).limit(20).all()
-    
-    return jsonify({
-        'messages': [{
-            'id': msg.id,
-            'content': msg.content,
-            'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-            'sender_name': msg.sender.name,
-            'recipient_name': msg.recipient.name,
-            'is_sent': msg.sender_id == current_user.id,
-            'read': msg.read
-        } for msg in messages]
-    })
 
 @app.route("/inbox")
 @login_required
 def inbox():
-    # Get unread messages first, then read messages
-    messages = Message.query.filter(
-        Message.recipient_id == current_user.id,
-        Message.deleted_by_recipient == False
-    ).order_by(Message.read.asc(), Message.timestamp.desc()).all()
-    
-    # Mark all messages as read
-    for message in messages:
-        if not message.read:
-            message.read = True
-    db.session.commit()
-    
-    return render_template('inbox.html', messages=messages)
+    employee = current_user
+    messages = Message.query.filter(Message.recipient_id == employee.id).order_by(Message.timestamp.desc()).all()
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':  # Detect AJAX request
+        return render_template('message_list.html', messages=messages)  # Render only the message list
+    else:
+        return render_template('inbox.html', messages=messages)  # Render the full page
 
-@app.route("/sent")
+@app.route("/send_message/<int:recipient_id>", methods=['POST'])
 @login_required
-def sent_messages():
-    messages = Message.query.filter(
-        Message.sender_id == current_user.id,
-        Message.deleted_by_sender == False
-    ).order_by(Message.timestamp.desc()).all()
-    return render_template('sent.html', messages=messages)
-
-@app.route("/chat/<int:other_user_id>")
-@login_required
-def chat(other_user_id):
-    other_user = Employee.query.get_or_404(other_user_id)
-    messages = Message.query.filter(
-        ((Message.sender_id == current_user.id) & (Message.recipient_id == other_user_id) & (Message.deleted_by_sender == False)) |
-        ((Message.sender_id == other_user_id) & (Message.recipient_id == current_user.id) & (Message.deleted_by_recipient == False))
-    ).order_by(Message.timestamp.asc()).all()
-    
-    # Mark messages as read
-    for message in messages:
-        if message.recipient_id == current_user.id and not message.read:
-            message.read = True
-    db.session.commit()
-    
+def send_message(recipient_id):
+    if not current_user.is_admin():
+         return jsonify({'message': 'You are not allowed', 'status': 'error'})
     form = MessageForm()
-    return render_template('chat.html', messages=messages, other_user=other_user, form=form)
-
-@app.route("/message/delete/<int:message_id>", methods=['POST'])
-@login_required
-def delete_message(message_id):
-    message = Message.query.get_or_404(message_id)
-    if message.sender_id == current_user.id:
-        message.deleted_by_sender = True
-    elif message.recipient_id == current_user.id:
-        message.deleted_by_recipient = True
-    
-    # If both sender and recipient have deleted the message, remove it from database
-    if message.deleted_by_sender and message.deleted_by_recipient:
-        db.session.delete(message)
-    
-    db.session.commit()
-    flash('Message deleted.', 'success')
-    return redirect(request.referrer or url_for('inbox'))
-
-@app.route("/api/send_message/<int:recipient_id>", methods=['POST'])
-@login_required
-def api_send_message(recipient_id):
-    content = request.form.get('content', '').strip()
-    attachments = request.form.getlist('attachments[]')
-    
-    if not content and not attachments:
-        return jsonify({'error': 'Message content or attachments are required'}), 400
-    
-    # Create the message
-    new_message = Message(
-        sender_id=current_user.id,
-        recipient_id=recipient_id,
-        content=content
-    )
-    db.session.add(new_message)
-    db.session.flush()  # Get message ID before committing
-    
-    # Handle attachments
-    message_attachments = []
-    for filename in attachments:
-        # Verify the file exists
-        file_path = os.path.join(app.root_path, 'static', 'attachments', filename)
-        if os.path.exists(file_path):
-            attachment = MessageAttachment(
-                message_id=new_message.id,
-                filename=filename,
-                file_type=mimetypes.guess_type(filename)[0],
-                file_size=os.path.getsize(file_path)
-            )
-            message_attachments.append(attachment)
-            db.session.add(attachment)
-    
-    db.session.commit()
-    
-    # Format attachments for response
-    attachment_data = [{
-        'filename': att.filename,
-        'original_name': att.filename.split('_', 1)[1],  # Remove timestamp prefix
-        'file_type': att.file_type,
-        'file_size': att.file_size
-    } for att in message_attachments]
-    
-    return jsonify({
-        'id': new_message.id,
-        'content': new_message.content,
-        'timestamp': new_message.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-        'sender_name': current_user.name,
-        'attachments': attachment_data
-    })
-
-@app.route("/api/check_notifications")
-@login_required
-def check_notifications():
-    # Get unread messages
-    unread_messages = Message.query.filter(
-        Message.recipient_id == current_user.id,
-        Message.read == False,
-        Message.deleted_by_recipient == False
-    ).order_by(Message.timestamp.desc()).all()
-    
-    # Format messages for the response
-    messages = [{
-        'id': msg.id,
-        'content': msg.content,
-        'sender_name': msg.sender.name,
-        'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M:%S')
-    } for msg in unread_messages]
-    
-    return jsonify({
-        'unread_count': len(unread_messages),
-        'new_messages': messages
-    })
-
-@app.route("/api/messages/<int:message_id>/react", methods=['POST'])
-@login_required
-def react_to_message(message_id):
-    emoji = request.form.get('emoji')
-    if not emoji:
-        return jsonify({'error': 'Emoji is required'}), 400
-        
-    message = Message.query.get_or_404(message_id)
-    
-    # Check if user already reacted with this emoji
-    existing_reaction = MessageReaction.query.filter_by(
-        message_id=message_id,
-        user_id=current_user.id,
-        emoji=emoji
-    ).first()
-    
-    if existing_reaction:
-        # Remove reaction if it already exists (toggle behavior)
-        db.session.delete(existing_reaction)
+    recipient = Employee.query.get_or_404(recipient_id)
+    print(recipient_id)
+    print(form.content.data)
+    print(form.validate())
+    print(form.errors)  # Print form errors to understand why validation is failing
+    if form.validate():
+        sender_id = current_user.id
+        new_message = Message(sender_id=sender_id, recipient_id=recipient_id, content=form.content.data)
+        db.session.add(new_message)
         db.session.commit()
-        return jsonify({'status': 'removed'})
-    
-    # Add new reaction
-    reaction = MessageReaction(
-        message_id=message_id,
-        user_id=current_user.id,
-        emoji=emoji
-    )
-    db.session.add(reaction)
-    db.session.commit()
-    
-    return jsonify({
-        'status': 'added',
-        'reaction': {
-            'id': reaction.id,
-            'emoji': emoji,
-            'user_name': current_user.name
-        }
-    })
-
-@app.route("/api/message_statuses")
-@login_required
-def check_message_statuses():
-    since = request.args.get('since')
-    if not since:
-        return jsonify({'error': 'Missing since parameter'}), 400
-    
-    try:
-        since_dt = datetime.datetime.fromisoformat(since.replace('Z', '+00:00'))
-    except ValueError:
-        return jsonify({'error': 'Invalid date format'}), 400
-    
-    # Get status updates for sent messages
-    messages = Message.query.filter(
-        Message.sender_id == current_user.id,
-        Message.timestamp >= since_dt
-    ).all()
-    
-    updates = [{
-        'message_id': msg.id,
-        'delivered': True,  # Message exists in DB so it's delivered
-        'read': msg.read,
-        'timestamp': msg.timestamp.isoformat()
-    } for msg in messages]
-    
-    return jsonify({'updates': updates})
-
-@app.route("/api/messages/upload", methods=['POST'])
-@login_required
-def upload_message_attachment():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-    
-    # Validate file type
-    file_ext = validate_file_mime_type(file)
-    if not file_ext:
-        return jsonify({'error': 'Invalid file type'}), 400
-    
-    # Create attachments directory if it doesn't exist
-    attachments_dir = os.path.join(app.root_path, 'static', 'attachments')
-    os.makedirs(attachments_dir, exist_ok=True)
-    
-    # Save file with unique name and correct extension
-    filename = secure_filename(f"{int(time.time())}_{file.filename}")
-    base_name = os.path.splitext(filename)[0]
-    safe_filename = f"{base_name}{file_ext}"
-    file_path = os.path.join(attachments_dir, safe_filename)
-    file.save(file_path)
-    
-    # Get file size and type
-    file_size = os.path.getsize(file_path)
-    file_type = file.content_type
-    
-    return jsonify({
-        'filename': safe_filename,
-        'original_name': file.filename,
-        'file_type': file_type,
-        'file_size': file_size
-    })
+        return jsonify({'message': 'sent', 'status': 'success'})
+        #return redirect(url_for('admin'))
+    else:
+        return jsonify({'message': 'some Error', 'status': 'error'})
 
 # --- Admin Routes ---
-
-
 @app.route("/admin")
 @login_required
 def admin():
-    if not is_admin():
+    if not current_user.is_admin():
         flash("You are not authorized to access this page.", "danger")
         return redirect(url_for("profile"))
     employees = Employee.query.all()
@@ -625,56 +418,53 @@ def admin():
 @app.route("/admin/employee/<int:employee_id>")
 @login_required
 def view_employee_profile(employee_id):
-    if not is_admin():
+    if not current_user.is_admin():
         flash("You are not authorized to view employee profiles.", "danger")
         return redirect(url_for("profile"))
 
     employee = Employee.query.get_or_404(employee_id)
-    now = dt.now(datetime.UTC)
+    now = datetime.now(dt.UTC)
     meetings = Meeting.query.filter_by(employee_id=employee.id).filter(Meeting.date >= now).order_by(Meeting.date).limit(5).all()
     return render_template('profile.html', employee=employee, meetings=meetings)  # Reuse the profile template
-
 
 @app.route("/admin/employee/new", methods=['GET', 'POST'])
 @login_required
 def create_employee():
-    if not is_admin():
-        flash("You are not authorized to create employees.", "danger")
-        return redirect(url_for("profile"))
+    if not current_user.is_admin():
+        return jsonify({'message': 'Unauthorized', 'status': 'error'})
 
     form = EmployeeForm()
     if form.validate_on_submit():
         hashed_password = bcrypt.hashpw(form.password.data.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        employee = Employee(employee_id=form.employee_id.data, name=form.name.data, email=form.email.data, password=hashed_password, role=form.role.data, mobile_number=form.mobile_number.data) # Included mobile number
+        employee = Employee(employee_id=form.employee_id.data, name=form.name.data, email=form.email.data, password=hashed_password, role=form.role.data, mobile_number=form.mobile_number.data )
         db.session.add(employee)
         db.session.commit()
-        flash('Employee created successfully!', 'success')
-        return redirect(url_for('admin'))
-    return render_template('create_employee.html', form=form)
+        employees = Employee.query.all()  # Fetch updated employee list
+        return jsonify({'message': 'Employee created successfully!', 'status': 'success',
+                        'html': render_template('employee_list.html', employees=employees)})
+    return jsonify({'html': render_template('create_employee.html', form=form), 'status': 'form'})
 
 @app.route("/admin/employee/<int:employee_id>/delete", methods=['POST'])
 @login_required
 def delete_employee(employee_id):
-    if not is_admin():
-        flash("You are not authorized to delete employees.", "danger")
-        return redirect(url_for("profile"))
+    if not current_user.is_admin():
+        return jsonify({'message': 'Unauthorized', 'status': 'error'})
 
     employee = Employee.query.get_or_404(employee_id)
     if employee.role == 'admin' and employee.employee_id == 'admin':
-        flash("You are not authorized to delete default admin.", "danger")
-        return redirect(url_for("admin"))
-    # Delete related messages
-    Message.query.filter((Message.sender_id == employee_id) | (Message.recipient_id == employee_id)).delete()
-    
+        return jsonify({'message': 'Cannot delete the default admin!', 'status': 'error'})
+    Attendance.query.filter_by(employee_id=employee.id).delete()
+    Message.query.filter((Message.sender_id == employee.id) | (Message.recipient_id == employee.id)).delete()
     db.session.delete(employee)
     db.session.commit()
-    flash('Employee deleted successfully!', 'success')
-    return redirect(url_for('admin'))
+    employees = Employee.query.all()
+    return jsonify({'message': 'Employee deleted successfully!', 'status': 'success',
+                    'html': render_template('employee_list.html', employees=employees)})
 
 @app.route("/admin/employee/<int:employee_id>/attendance", methods=['GET'])
 @login_required
 def view_employee_attendance(employee_id):
-    if not is_admin():
+    if not current_user.is_admin():
         flash("You are not authorized to view attendance.", "danger")
         return redirect(url_for("profile"))
 
@@ -682,77 +472,200 @@ def view_employee_attendance(employee_id):
     attendances = Attendance.query.filter_by(employee_id=employee.id).all()
     return render_template('employee_attendance.html', employee=employee, attendances=attendances)
 
-@app.route("/create_meeting", methods=['GET', 'POST'])
+@app.route("/meetings_calender", methods=['GET', 'POST'])
+@login_required
+def meetings_calender():
+     employee = current_user
+     today = date.today()
+
+     # Get the year and month from the request arguments
+     year = int(request.args.get('year', today.year))
+     month = int(request.args.get('month', today.month))
+
+     # Get the first day of the month and number of days in the month
+     first_day = date(year, month, 1)
+     num_days = monthrange(year, month)[1]
+
+     # Get meetings for the month
+     first = date(year, month, 1)
+     lastDay = date(year, month, num_days)
+     meetings = Meeting.query.filter_by(employee_id=employee.id)\
+               .filter(Meeting.date >= first)\
+               .filter(Meeting.date <= lastDay).all()
+
+     # Create a calendar instance
+     cal = Calendar()
+
+     # Group meetings by day
+     meetings_by_day = {}
+     for meeting in meetings:
+         day = meeting.date.day
+         if day not in meetings_by_day:
+             meetings_by_day[day] = []
+         meetings_by_day[day].append(meeting)
+
+     # Generate the calendar days
+     days = [d for d in cal.itermonthdates(year, month)]
+
+     return render_template('calendar.html',
+                         year=year,
+                         month=month,
+                         first_day=first_day,
+                         days=days,
+                         meetings_by_day=meetings_by_day,
+                         today=today)
+     
+@app.route("/meetings/new", methods=['GET', 'POST'])
 @login_required
 def create_meeting():
-    if not is_admin():
-        flash("You are not authorized to create meetings.", "danger")
-        return redirect(url_for("profile"))
-
     form = MeetingForm()
     if form.validate_on_submit():
-        combined_datetime = datetime.combine(form.date.data, form.time.data)
-        new_meeting = Meeting(
-            employee_id=current_user.id,
-            title=form.title.data,
-            date=combined_datetime,
-            location=form.location.data,
-            description=form.description.data
-        )
+        employee_id = current_user.id
+        meeting_date = datetime.combine(form.date.data, form.time.data)
+        new_meeting = Meeting(employee_id=employee_id, title=form.title.data, date=meeting_date, location=form.location.data, description=form.description.data, event_type=form.event_type.data)
         db.session.add(new_meeting)
         db.session.commit()
         flash('Meeting created successfully!', 'success')
-        return redirect(url_for('admin'))
-
+        return redirect(url_for('meetings'))
     return render_template('create_meeting.html', form=form)
 
-
-@app.route("/calendar")
+@app.route("/meetings/<int:meeting_id>/delete", methods=['POST'])
 @login_required
-def calendar():
-    if is_admin():
-        # Admins can see all meetings
-        meetings = Meeting.query.all()
-    else:
-        # Regular employees only see their own meetings
-        meetings = Meeting.query.filter_by(employee_id=current_user.id).all()
-    return render_template("calendar.html", meetings=meetings)
+def delete_meeting(meeting_id):
+    meeting = Meeting.query.get_or_404(meeting_id)
+    db.session.delete(meeting)
+    db.session.commit()
+    flash('Meeting deleted successfully!', 'success')
+    return redirect(url_for('meetings'))
 
-@app.route("/update_profile_picture", methods=['POST'])
+@app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
-def update_profile_picture():
-    if 'profile_picture' not in request.files:
-        flash('No file selected', 'danger')
-        return redirect(url_for('profile'))
-    
-    file = request.files['profile_picture']
-    if file.filename == '':
-        flash('No file selected', 'danger')
-        return redirect(url_for('profile'))
-    
-    if file and allowed_file(file.filename):
-        # Delete old profile picture if it exists and isn't default
-        if current_user.profile_picture != 'default.jpg':
-            old_file = os.path.join(app.root_path, app.config['UPLOAD_FOLDER'], current_user.profile_picture)
-            if os.path.exists(old_file):
-                os.remove(old_file)
+def edit_profile():
+    form = EditProfileForm(obj=current_user)  # Initialize form with current user data
+    users = Employee.query.all()
+    if form.validate_on_submit():
+        if form.profile_picture.data: # Check if the image has been changed
+            picture_file = save_picture(form.profile_picture.data)
+            if picture_file:
+                current_user.profile_picture = picture_file #save filename to db
 
-        # Save new profile picture
-        filename = secure_filename(f"{current_user.employee_id}_{file.filename}")
-        file.save(os.path.join(app.root_path, app.config['UPLOAD_FOLDER'], filename))
-        
-        # Update database
-        current_user.profile_picture = filename
+        current_user.name = form.name.data
+        current_user.email = form.email.data
+        current_user.mobile_number = form.mobile_number.data
         db.session.commit()
-        
-        flash('Profile picture updated successfully!', 'success')
-        return redirect(url_for('profile'))
+        flash('Your profile has been updated!', 'success')
+        return redirect(url_for('profile'))  # Redirect back to profile page
+    return render_template('edit_profile.html', form=form, users = users)
+
+
+@app.route('/chat', methods=['GET', 'POST'])
+@login_required
+def chat():
+    form = ChatForm()
+    # Populate recipient choices (exclude current user)
+    form.recipient_id.choices = [(0, 'Everyone')] + [(e.id, e.name) for e in Employee.query.filter(Employee.id != current_user.id).all()]
+    messages = Chat.query.order_by(Chat.timestamp.desc()).limit(50).all() # change limit and add filter
+
+    if form.validate_on_submit():
+        recipient_id = form.recipient_id.data if form.recipient_id.data != 0 else None
+        new_message = Chat(sender_id=current_user.id, recipient_id=recipient_id, content=form.content.data)
+        db.session.add(new_message)
+        db.session.commit()
+        return redirect(url_for('chat'))  # Or use AJAX to update the display
     
-    flash('Invalid file type. Please use PNG, JPG, JPEG or GIF', 'danger')
-    return redirect(url_for('profile'))
+    return render_template('chat.html', form=form, messages=messages)
 
-# --- WebView Integration ---
+@app.route('/get_messages', methods=['GET'])
+@login_required
+def get_messages():
+    messages = Chat.query.order_by(Chat.timestamp.desc()).limit(50).all() #Add query parameters
 
+    messages_list = []
+    for message in messages:
+         messages_list.append({
+               'sender': message.sender.name,
+               'content': message.content,
+               'timestamp': message.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+          })
+
+    return jsonify(messages_list)
+
+@app.route('/change_password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    form = ChangePasswordForm()
+    if form.validate_on_submit():
+        if current_user.check_password(form.old_password.data):
+            current_user.set_password(form.new_password.data)
+            db.session.commit()
+            flash('Your password has been changed!', 'success')
+            return redirect(url_for('profile'))
+        else:
+            flash('Invalid old password.', 'danger')
+    return render_template('change_password.html', form=form)
+
+@app.template_filter('time')
+def time_filter(time_str):
+    return datetime.strptime(time_str, '%H:%M:%S').time()
+
+@app.route("/")
+def index():
+    pass
+
+# Task Management Routes
+@app.route('/task/<int:task_id>/toggle', methods=['POST'])
+@login_required
+def toggle_task_status(task_id):
+    task = Task.query.get_or_404(task_id)
+    if task.employee_id != current_user.id:
+        return jsonify({'message': 'Unauthorized', 'status': 'error'}), 403
+        
+    task.status = 'completed' if task.status == 'pending' else 'pending'
+    db.session.commit()
+    return jsonify({
+        'status': 'success',
+        'new_status': task.status
+    })
+
+@app.route('/task/new', methods=['POST'])
+@csrf.exempt
+@login_required
+def create_task():
+    try:
+        csrf_token = request.headers.get('X-CSRF-Token')
+        if not csrf_token:
+            return jsonify({'message': 'CSRF token missing', 'status': 'error'}), 403
+            
+        data = request.get_json()
+        if not data.get('title'):
+            return jsonify({'message': 'Title is required', 'status': 'error'}), 400
+            
+        # Parse the datetime string properly
+        due_date = datetime.strptime(data['due_date'], '%Y-%m-%dT%H:%M')
+        
+        task = Task(
+            employee_id=current_user.id,
+            title=data['title'],
+            description=data.get('description'),
+            due_date=due_date,
+            status='pending'
+        )
+        db.session.add(task)
+        db.session.commit()
+        return jsonify({
+            'status': 'success',
+            'message': 'Task created successfully'
+        })
+    except ValueError as e:
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid date format. Please use YYYY-MM-DDTHH:MM format.'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Error creating task: {str(e)}'
+        }), 500
 
 def start_server():
     app.run(debug=True, host='0.0.0.0', port=5000)  # Be explicit about host and port
@@ -760,29 +673,21 @@ def start_server():
 if __name__ == '__main__':
     # --- Database setup ---
     with app.app_context():
-        db.drop_all()  # Reset database during development
         db.create_all()
         # Create admin user if it doesn't exist
         admin_user = Employee.query.filter_by(employee_id='admin').first()
         if not admin_user:
-            admin_user = Employee(
-                employee_id='admin',
-                name='Harsh Raj Jaiswal',
-                email='admin@example.com',
-                role='admin',
-                mobile_number='7754938396'
-            )
-            admin_user.set_password('password')
+            admin_user = Employee(employee_id='admin', name='Harsh Raj Jaiswal', email='jaiswal.harshraj1601@gmail.com', role='admin')
+            admin_user.set_password('password')  # USE A STRONG PASSWORD!
             db.session.add(admin_user)
             db.session.commit()
         start_server()
-
     # --- Start Flask server in a thread ---
     # t = threading.Thread(target=start_server)
     # t.daemon = True
     # t.start()
     # time.sleep(1)  # Give the server a moment to start
 
-    # # --- Create and run WebView window ---
-    # webview.create_window("Digipodium", "http://127.0.0.1:5000/",maximized=True)
+    # --- Create and run WebView window ---
+    # webview.create_window("Company App", "http://127.0.0.1:5000/",maximized=True, resizable=False)
     # webview.start()

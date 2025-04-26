@@ -15671,18 +15671,18 @@ div.copied {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  margin-top: 1.9rem;
+  margin-top: 0;
 }
 
 @media (min-width: 768px) {
   .sidebar .sidebar-inner {
-    margin-top: 1rem;
+    margin-top: 0;
   }
 }
 
 @media (min-width: 1200px) {
   .sidebar .sidebar-inner {
-    margin-top: 2.5rem;
+    margin-top: 0;
   }
 }
 
@@ -16342,13 +16342,13 @@ div.copied {
 
 .sidebar-fixed-offcanvas .sidebar-with-footer,
 .sidebar-fixed .sidebar-with-footer {
-  padding-bottom: 260px;
+  padding-bottom: 30px;
 }
 
 @media (min-width: 768px) {
   .sidebar-fixed-offcanvas .sidebar-with-footer,
   .sidebar-fixed .sidebar-with-footer {
-    padding-bottom: 284px;
+    padding-bottom: 0px;
   }
 }
 

@@ -49,12 +49,12 @@
           </a>
         </li>
 
-        <li class="has-sub {% if request.endpoint == 'inbox' %}active{% endif %}">
+        <!-- <li class="has-sub {% if request.endpoint == 'inbox' %}active{% endif %}">
           <a href="{{ url_for('inbox') }}" class="sidenav-item-link">
             <i class="mdi mdi-inbox"></i>
             <span class="nav-text">Inbox</span>
           </a>
-        </li>
+        </li> -->
 
         <li class="has-sub {% if request.endpoint in ['projects', 'create_project', 'project_details'] %}active{% endif %}">
           <a href="{{ url_for('projects') }}" class="sidenav-item-link">
@@ -68,6 +68,12 @@
           <a href="{{ url_for('admin') }}" class="sidenav-item-link">
             <i class="mdi mdi-account-multiple"></i>
             <span class="nav-text" style="white-space: normal; line-height: 1.2;">Manage<br>Employees</span>
+          </a>
+        </li>
+        <li class="has-sub {% if request.endpoint == 'admin_timetable' %}active{% endif %}">
+          <a href="{{ url_for('admin_timetable') }}" class="sidenav-item-link">
+            <i class="mdi mdi-timetable"></i>
+            <span class="nav-text">Manage<br>Timetable</span>
           </a>
         </li>
         {% endif %}

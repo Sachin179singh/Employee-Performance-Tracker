@@ -145,6 +145,64 @@
         </div>
       </div>
     </div>
+
+    <div class="row">
+      <div class="col-12 mt-4">
+        <div class="card card-default">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h2>My Projects</h2>
+            <a href="{{ url_for('create_project') }}" class="btn btn-primary">Add Project</a>
+          </div>
+          <div class="card-body">
+            <div class="table-responsive">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Project Name</th>
+                    <th>Type</th>
+                    <th>Progress</th>
+                    <th>Trainees</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for project in projects %}
+                  <tr>
+                    <td>{{ project.name }}</td>
+                    <td>{{ project.project_type }}</td>
+                    <td>
+                      <div class="d-flex align-items-center">
+                        <div class="progress flex-grow-1" style="height: 20px;">
+                          <div class="progress-bar" role="progressbar" 
+                               style="width: {{ project.completion_percentage }}%"
+                               aria-valuenow="{{ project.completion_percentage }}" 
+                               aria-valuemin="0" aria-valuemax="100">
+                            {{ "%.1f"|format(project.completion_percentage) }}%
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      {% if project.trainees %}
+                        {{ project.trainees|length }} trainee(s)
+                      {% else %}
+                        No trainees
+                      {% endif %}
+                    </td>
+                    <td>{{ project.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td>
+                      <a href="{{ url_for('project_details', project_id=project.id) }}" class="btn btn-sm btn-info">View</a>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 

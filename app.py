@@ -16,7 +16,7 @@ from flask_session import Session  # pip install Flask-Session
 import bcrypt  # pip install bcrypt
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField, DateField, TimeField, TextAreaField, SelectField, HiddenField, BooleanField
-from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError
+from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError, Optional, URL
 from flask_wtf.csrf import CSRFProtect, CSRFError
 from flask_wtf.file import FileAllowed, FileField
 from PIL import Image
@@ -126,9 +126,51 @@ class Task(db.Model):
     def __repr__(self):
         return f"Task('{self.title}', '{self.due_date}', '{self.status}')"
 
+class Trainee(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    projects = db.relationship('ProjectTrainee', back_populates='trainee')
 
-# Add relationship to Employee model
+    def __repr__(self):
+        return f"Trainee('{self.name}')"
+
+class ProjectTrainee(db.Model):
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'), primary_key=True)
+    trainee_id = db.Column(db.Integer, db.ForeignKey('trainee.id'), primary_key=True)
+    assigned_at = db.Column(db.DateTime, default=datetime.utcnow)
+    trainee = db.relationship('Trainee', back_populates='projects')
+    project = db.relationship('Project', back_populates='trainees')
+
+class Project(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    project_type = db.Column(db.String(50), nullable=False)  # Data Science, Machine Learning, etc
+    description = db.Column(db.Text)
+    github_link = db.Column(db.String(255))
+    completion_percentage = db.Column(db.Float, default=0.0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    modules = db.relationship('ProjectModule', backref='project', lazy=True, cascade='all, delete-orphan')
+    trainees = db.relationship('ProjectTrainee', back_populates='project', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f"Project('{self.name}', '{self.project_type}')"
+
+class ProjectModule(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    is_completed = db.Column(db.Boolean, default=False)
+    completion_date = db.Column(db.DateTime, nullable=True)
+    
+    def __repr__(self):
+        return f"ProjectModule('{self.name}', completed={self.is_completed})"
+
+# Add relationships to Employee model
 Employee.tasks = db.relationship('Task', backref='assigned_to', lazy=True)
+Employee.projects_owned = db.relationship('Project', backref='owner', foreign_keys='[Project.employee_id]', lazy=True)
 
 # --- Forms ---
 
@@ -198,6 +240,30 @@ class ChangePasswordForm(FlaskForm):
     confirm_password = PasswordField('Confirm New Password', validators=[DataRequired(), EqualTo('new_password')])
     submit = SubmitField('Change Password')
 
+class TraineeForm(FlaskForm):
+    name = StringField('Trainee Name', validators=[DataRequired()])
+    submit = SubmitField('Add Trainee')
+
+class ProjectForm(FlaskForm):
+    name = StringField('Project Name', validators=[DataRequired()])
+    project_type = SelectField('Project Type', choices=[
+        ('data_science', 'Data Science'),
+        ('machine_learning', 'Machine Learning'),
+        ('data_analytics', 'Data Analytics'),
+        ('web_development', 'Web Development'),
+        ('mobile_development', 'Mobile Development'),
+        ('other', 'Other')
+    ], validators=[DataRequired()])
+    description = TextAreaField('Project Description')
+    github_link = StringField('GitHub Link', validators=[Optional(), URL()])
+    trainee_names = TextAreaField('Trainee Names (one per line)')
+    submit = SubmitField('Create Project')
+
+class ProjectModuleForm(FlaskForm):
+    name = StringField('Module Name', validators=[DataRequired()])
+    description = TextAreaField('Module Description')
+    submit = SubmitField('Add Module')
+
 
 def save_picture(form_picture):
     # 1. Open the image using Pillow
@@ -259,26 +325,24 @@ def logout():
 @login_required
 def dashboard():
     employee = current_user
-    form = AttendanceForm()
-    today = date.today()  # Get today's date
+    today = datetime.now().date()
     
-    # Get the current month's attendance
-    current_month = today.replace(day=1)
-    next_month = (current_month + timedelta(days=32)).replace(day=1)
-    monthly_attendance = Attendance.query.filter_by(employee_id=employee.id)\
-        .filter(Attendance.date >= current_month)\
-        .filter(Attendance.date < next_month).all()
+    # Get attendance records
+    attendance_records = Attendance.query.filter_by(employee_id=employee.id).all()
+    attendance_by_day = {a.date.day: a for a in attendance_records if a.date.month == today.month}
     
-    # Create attendance dict for calendar
-    attendance_by_day = {}
-    for att in monthly_attendance:
-        day = att.date.day
-        attendance_by_day[day] = att
-
-    # Get tasks 
-    tasks = Task.query.filter_by(employee_id=employee.id).order_by(Task.due_date.asc()).limit(5).all()
+    # Get tasks
+    tasks = Task.query.filter_by(employee_id=employee.id).order_by(Task.due_date.asc()).all()
     pending_tasks = Task.query.filter_by(employee_id=employee.id, status='pending').count()
     completed_tasks = Task.query.filter_by(employee_id=employee.id, status='completed').count()
+    
+    # Get projects - both owned and assigned
+    owned_projects = Project.query.filter_by(employee_id=employee.id).all()
+    trainee = Trainee.query.filter_by(name=employee.name).first()
+    assigned_projects = []
+    if trainee:
+        assigned_projects = [pt.project for pt in trainee.projects]
+    projects = owned_projects + assigned_projects
     
     # Check if attendance is marked for today
     attendance_marked = Attendance.query.filter_by(employee_id=employee.id, date=today).first()
@@ -289,14 +353,14 @@ def dashboard():
 
     return render_template('dashboard.html',
                          employee=current_user,
-                         form=form,
                          attendance_marked=attendance_marked,
                          days=days,
-                         today=today,  # Pass today to template
+                         today=today,
                          attendance_by_day=attendance_by_day,
                          tasks=tasks,
                          pending_tasks=pending_tasks,
-                         completed_tasks=completed_tasks)
+                         completed_tasks=completed_tasks,
+                         projects=projects)
 
 
 @app.route("/profile", methods=['GET', 'POST'])
@@ -414,6 +478,25 @@ def admin():
         return redirect(url_for("profile"))
     employees = Employee.query.all()
     return render_template('admin.html', employees=employees)
+
+@app.route("/admin/employee/<int:employee_id>/projects")
+@login_required
+def admin_view_employee_projects(employee_id):
+    if not current_user.is_admin():
+        flash("You are not authorized to view employee projects.", "danger")
+        return redirect(url_for("profile"))
+    
+    employee = Employee.query.get_or_404(employee_id)
+    owned_projects = Project.query.filter_by(employee_id=employee.id).all()
+    trainee = Trainee.query.filter_by(name=employee.name).first()
+    assigned_projects = []
+    if trainee:
+        assigned_projects = [pt.project for pt in trainee.projects]
+    
+    return render_template('admin_employee_projects.html', 
+                         employee=employee,
+                         owned_projects=owned_projects, 
+                         assigned_projects=assigned_projects)
 
 @app.route("/admin/employee/<int:employee_id>")
 @login_required
@@ -667,6 +750,126 @@ def create_task():
             'message': f'Error creating task: {str(e)}'
         }), 500
 
+# Project Management Routes
+@app.route('/projects')
+@login_required
+def projects():
+    owned_projects = Project.query.filter_by(employee_id=current_user.id).all()
+    # Get projects where user is a trainee
+    trainee = Trainee.query.filter_by(name=current_user.name).first()
+    assigned_projects = []
+    if trainee:
+        assigned_projects = [pt.project for pt in trainee.projects]
+    return render_template('projects.html', owned_projects=owned_projects, assigned_projects=assigned_projects)
+
+@app.route('/projects/new', methods=['GET', 'POST'])
+@login_required
+def create_project():
+    form = ProjectForm()
+    if form.validate_on_submit():
+        project = Project(
+            name=form.name.data,
+            project_type=form.project_type.data,
+            description=form.description.data,
+            github_link=form.github_link.data,
+            employee_id=current_user.id
+        )
+        db.session.add(project)
+        
+        # Handle trainee names
+        if form.trainee_names.data:
+            trainee_names = [name.strip() for name in form.trainee_names.data.split('\n') if name.strip()]
+            for name in trainee_names:
+                trainee = Trainee.query.filter_by(name=name).first()
+                if not trainee:
+                    trainee = Trainee(name=name)
+                    db.session.add(trainee)
+                project_trainee = ProjectTrainee(project=project, trainee=trainee)
+                db.session.add(project_trainee)
+        
+        db.session.commit()
+        flash('Project created successfully!', 'success')
+        return redirect(url_for('project_details', project_id=project.id))
+    return render_template('create_project.html', form=form)
+
+@app.route('/projects/<int:project_id>')
+@login_required
+def project_details(project_id):
+    project = Project.query.get_or_404(project_id)
+    # Allow admin to view any project, otherwise check if user has access
+    if not current_user.is_admin():
+        if project.employee_id != current_user.id and not any(pt.trainee_id == current_user.id for pt in project.trainees):
+            flash('You do not have access to this project.', 'danger')
+            return redirect(url_for('projects'))
+    module_form = ProjectModuleForm()
+    return render_template('project_details.html', project=project, module_form=module_form)
+
+@app.route('/projects/<int:project_id>/modules/add', methods=['POST'])
+@login_required
+def add_module(project_id):
+    project = Project.query.get_or_404(project_id)
+    if project.employee_id != current_user.id:
+        return jsonify({'message': 'Unauthorized', 'status': 'error'}), 403
+        
+    form = ProjectModuleForm()
+    if form.validate_on_submit():
+        module = ProjectModule(
+            project_id=project_id,
+            name=form.name.data,
+            description=form.description.data
+        )
+        db.session.add(module)
+        db.session.commit()
+        
+        # Update project completion percentage
+        total_modules = len(project.modules)
+        completed_modules = len([m for m in project.modules if m.is_completed])
+        project.completion_percentage = (completed_modules / total_modules * 100) if total_modules > 0 else 0
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Module added successfully',
+            'html': render_template('_project_modules.html', project=project)
+        })
+    return jsonify({'message': 'Invalid form data', 'status': 'error'}), 400
+
+@app.route('/projects/<int:project_id>/modules/<int:module_id>/toggle', methods=['POST'])
+@csrf.exempt
+@login_required
+def toggle_module(project_id, module_id):
+    project = Project.query.get_or_404(project_id)
+    trainee = Trainee.query.filter_by(name=current_user.name).first()
+    
+    # Check if user is either the project owner or an assigned trainee
+    if project.employee_id != current_user.id and (not trainee or not any(pt.trainee_id == trainee.id for pt in project.trainees)):
+        return jsonify({'message': 'Unauthorized', 'status': 'error'}), 403
+        
+    module = ProjectModule.query.get_or_404(module_id)
+    if module.project_id != project_id:
+        return jsonify({'message': 'Invalid module', 'status': 'error'}), 400
+        
+    try:
+        module.is_completed = not module.is_completed
+        module.completion_date = datetime.utcnow() if module.is_completed else None
+        
+        # Update project completion percentage
+        total_modules = len(project.modules)
+        completed_modules = len([m for m in project.modules if m.is_completed])
+        project.completion_percentage = (completed_modules / total_modules * 100) if total_modules > 0 else 0
+        
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'is_completed': module.is_completed,
+            'completion_percentage': project.completion_percentage,
+            'html': render_template('_project_modules.html', project=project)
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': str(e), 'status': 'error'}), 400
+
 def start_server():
     app.run(debug=True, host='0.0.0.0', port=5000)  # Be explicit about host and port
 
@@ -690,4 +893,4 @@ if __name__ == '__main__':
 
     # --- Create and run WebView window ---
     # webview.create_window("Company App", "http://127.0.0.1:5000/",maximized=True, resizable=False)
-    # webview.start()
+    # webview

@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title> {% block title %} {% endblock %} </title>
+    
     {% block css %} {% endblock %}
     {% block csslinks %} {% endblock %}
   </head>
@@ -27,5 +28,7 @@
     </div>
     {% block jslinks %} {% endblock %}
     {% block js %} {% endblock %}
+    <script src="/static/js/sleek.js"></script>
+    
   </body>
 </html>

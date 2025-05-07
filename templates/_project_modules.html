@@ -1,0 +1,47 @@
+<div class="table-responsive">
+  <table class="table">
+    <thead>
+      <tr>
+        <th style="width: 120px">Status</th>
+        <th>Module Name</th>
+        <th>Description</th>
+        <th>Completion Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if project.modules %}
+        {% for module in project.modules %}
+          <tr>
+            <td>
+              {% if module.is_completed %}
+                <button class="btn btn-success btn-sm" disabled>
+                  <i class="mdi mdi-check"></i> Completed
+                </button>
+              {% else %}
+                <button class="btn btn-outline-primary btn-sm complete-module" 
+                        data-module-id="{{ module.id }}"
+                        data-project-id="{{ project.id }}"
+                        {% if project.employee_id != current_user.id and not current_user.name in project.trainees|map(attribute='trainee.name')|list %}disabled{% endif %}>
+                  Complete
+                </button>
+              {% endif %}
+            </td>
+            <td>{{ module.name }}</td>
+            <td>{{ module.description }}</td>
+            <td>
+              {% if module.completion_date %}
+                {{ module.completion_date.strftime('%Y-%m-%d %H:%M') }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="4" class="text-center">No modules added yet.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>

@@ -187,6 +187,19 @@ class Batch(db.Model):
     room_id = db.Column(db.Integer, db.ForeignKey('room.id'), nullable=False)
     room = db.relationship('Room', backref='batches')
 
+    def __lt__(self, other):
+        if not isinstance(other, Batch):
+            return NotImplemented
+        return (self.start_time, self.name) < (other.start_time, other.name)
+    
+    def __eq__(self, other):
+        if not isinstance(other, Batch):
+            return NotImplemented
+        return self.id == other.id
+    
+    def __hash__(self):
+        return hash(self.id)
+
 
 class TimeTable(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -423,21 +436,30 @@ def dashboard():
 def profile():
     employee = current_user
     attendance = AttendanceForm()
-    today = date.today()  # Get today's date
+    today = date.today()
+    
     # check if Attendance is already marked or not
     attendance_marked = Attendance.query.filter_by(employee_id=employee.id, date=today).first()
 
     # Fetch upcoming meetings
     now = datetime.now(dt.UTC)
-    meetings = Meeting.query.filter_by(employee_id=employee.id).filter(Meeting.date >= now).order_by(Meeting.date).limit(5).all()  # Limit to 5 upcoming meetings
+    meetings = Meeting.query.filter_by(employee_id=employee.id).filter(Meeting.date >= now).order_by(Meeting.date).limit(5).all()
 
-    form = EditProfileForm(obj=current_user)  # Initialize form with current user data
+    # Fetch timetable entries with eager loading
+    timetable_entries = (TimeTable.query
+                        .filter_by(employee_id=employee.id)
+                        .join(Batch)
+                        .join(Room)
+                        .all())
+
+    form = EditProfileForm(obj=current_user)
     users = Employee.query.all()
+    
     if form.validate_on_submit():
-        if form.profile_picture.data:  # Check if the image has been changed
+        if form.profile_picture.data:
             picture_file = save_picture(form.profile_picture.data)
             if picture_file:
-                current_user.profile_picture = picture_file  # save filename to db
+                current_user.profile_picture = picture_file
 
         current_user.name = form.name.data
         current_user.email = form.email.data
@@ -445,7 +467,15 @@ def profile():
         db.session.commit()
         flash('Your profile has been updated!', 'success')
         return redirect(url_for('profile'))
-    return render_template('profile.html', employee=employee, meetings=meetings, form=form, attendance_marked=attendance_marked, users=users, attendance=attendance)
+        
+    return render_template('profile.html', 
+                         employee=employee,
+                         meetings=meetings,
+                         form=form,
+                         attendance_marked=attendance_marked,
+                         users=users,
+                         attendance=attendance,
+                         timetable_entries=timetable_entries)
 
 
 # @login_required
@@ -1008,6 +1038,7 @@ def assign_timetable():
     batch_id = data.get('batch_id')
     employee_id = data.get('employee_id')  # This can be None or empty
     day_of_week = data.get('day_of_week')
+    print(batch_id, employee_id, day_of_week)  # Debugging line
     
     if not all([batch_id, day_of_week is not None]):  # Don't check employee_id since it can be None
         return jsonify({'message': 'Missing required fields', 'status': 'error'}), 400
@@ -1034,6 +1065,50 @@ def assign_timetable():
     try:
         db.session.commit()
         return jsonify({'message': 'Timetable updated successfully', 'status': 'success'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': str(e), 'status': 'error'}), 500
+
+
+@app.route('/admin/room/<int:room_id>/delete', methods=['POST'])
+@login_required
+def delete_room(room_id):
+    if not current_user.is_admin():
+        return jsonify({'message': 'Unauthorized', 'status': 'error'}), 403
+    
+    room = Room.query.get_or_404(room_id)
+    
+    # Delete associated batches first
+    batches = Batch.query.filter_by(room_id=room.id).all()
+    for batch in batches:
+        # Delete timetable entries for this batch
+        TimeTable.query.filter_by(batch_id=batch.id).delete()
+        db.session.delete(batch)
+    
+    db.session.delete(room)
+    
+    try:
+        db.session.commit()
+        return jsonify({'message': 'Room deleted successfully', 'status': 'success'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': str(e), 'status': 'error'}), 500
+
+@app.route('/admin/batch/<int:batch_id>/delete', methods=['POST'])
+@login_required
+def delete_batch(batch_id):
+    if not current_user.is_admin():
+        return jsonify({'message': 'Unauthorized', 'status': 'error'}), 403
+    
+    batch = Batch.query.get_or_404(batch_id)
+    
+    # Delete timetable entries for this batch
+    TimeTable.query.filter_by(batch_id=batch.id).delete()
+    db.session.delete(batch)
+    
+    try:
+        db.session.commit()
+        return jsonify({'message': 'Batch deleted successfully', 'status': 'success'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'message': str(e), 'status': 'error'}), 500

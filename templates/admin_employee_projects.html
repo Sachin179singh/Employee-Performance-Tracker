@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ employee.name }}'s Projects - Employee Track{% endblock %}
+
+{% block csslinks %}
+<link href="https://fonts.googleapis.com/css?family=Montserrat:400,500|Poppins:400,500,600,700|Roboto:400,500" rel="stylesheet" />
+<link href="https://cdn.materialdesignicons.com/4.4.95/css/materialdesignicons.min.css" rel="stylesheet" />
+<link href="/static/plugins/simplebar/simplebar.css" rel="stylesheet" />
+<link href="/static/plugins/nprogress/nprogress.css" rel="stylesheet" />
+<link href="/static/plugins/data-tables/dataTables.bootstrap4.min.css" rel="stylesheet" />
+<link id="sleek-css" rel="stylesheet" href="/static/css/sleek.css" />
+<link href="/static/img/favicon.png" rel="shortcut icon" />
+{% endblock %}
+
+{% block content %}
+<div class="content-wrapper">
+  <div class="content">
+    <div class="row">
+      <div class="col-12">
+        <div class="card card-default">
+          <div class="card-header card-header-border-bottom d-flex justify-content-between align-items-center">
+            <h2>{{ employee.name }}'s Projects</h2>
+            <a href="{{ url_for('admin') }}" class="btn btn-secondary">Back to Employee List</a>
+          </div>
+          <div class="card-body">
+            <div class="mb-5">
+              <h4>Owned Projects</h4>
+              <div class="table-responsive">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Project Name</th>
+                      <th>Type</th>
+                      <th>Progress</th>
+                      <th>Trainees</th>
+                      <th>Created</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for project in owned_projects %}
+                    <tr>
+                      <td>{{ project.name }}</td>
+                      <td>{{ project.project_type }}</td>
+                      <td>
+                        <div class="d-flex align-items-center">
+                          <div class="progress flex-grow-1" style="height: 20px;">
+                            <div class="progress-bar" role="progressbar" 
+                                 style="width: {{ project.completion_percentage }}%"
+                                 aria-valuenow="{{ project.completion_percentage }}" 
+                                 aria-valuemin="0" aria-valuemax="100">
+                              {{ "%.1f"|format(project.completion_percentage) }}%
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        {% if project.trainees %}
+                          {{ project.trainees|length }} trainee(s)
+                        {% else %}
+                          No trainees
+                        {% endif %}
+                      </td>
+                      <td>{{ project.created_at.strftime('%Y-%m-%d') }}</td>
+                      <td>
+                        <a href="{{ url_for('project_details', project_id=project.id) }}" class="btn btn-sm btn-info">View</a>
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                {% if not owned_projects %}
+                  <div class="text-center py-3">No owned projects found.</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

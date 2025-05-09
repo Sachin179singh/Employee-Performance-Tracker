@@ -129,34 +129,33 @@
                           <th>Thursday</th>
                           <th>Friday</th>
                           <th>Saturday</th>
+                          <th>Sunday</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {% for batch in employee.timetable_entries|groupby('batch') %}
-                        <tr>
-                          <td>
-                            {{ batch.grouper.start_time.strftime('%I:%M %p') }} - 
-                            {{ batch.grouper.end_time.strftime('%I:%M %p') }}
-                            <br>
-                            <small class="text-muted">{{ batch.grouper.name }}</small>
-                            <br>
-                            <small class="text-muted">Room: {{ batch.grouper.room.name }}</small>
-                          </td>
-                          {% for day in range(6) %}
+                        {% set batches = timetable_entries|groupby('batch_id') %}
+                        {% for batch_id, entries in batches %}
+                          {% set first_entry = entries|first %}
+                          <tr>
                             <td>
-                              {% set has_entry = false %}
-                              {% for entry in batch.list %}
-                                {% if entry.day_of_week == day %}
-                                  {{ batch.grouper.name }}
-                                  {% set has_entry = true %}
-                                {% endif %}
-                              {% endfor %}
-                              {% if not has_entry %}
-                                <span class="text-muted">Off</span>
-                              {% endif %}
+                              {{ first_entry.batch.start_time.strftime('%I:%M %p') }} - 
+                              {{ first_entry.batch.end_time.strftime('%I:%M %p') }}
+                              <br>
+                              <small class="text-muted">{{ first_entry.batch.name }}</small>
+                              <br>
+                              <small class="text-muted">Room: {{ first_entry.batch.room.name }}</small>
                             </td>
-                          {% endfor %}
-                        </tr>
+                            {% for day in range(7) %}
+                              {% set day_entry = entries|selectattr('day_of_week', 'equalto', day)|first %}
+                              <td class="{{ 'class-scheduled' if day_entry else 'no-class' }}">
+                                {% if day_entry %}
+                                  {{ first_entry.batch.name }}
+                                {% else %}
+                                  <span class="text-muted">Off</span>
+                                {% endif %}
+                              </td>
+                            {% endfor %}
+                          </tr>
                         {% endfor %}
                       </tbody>
                     </table>
@@ -273,6 +272,25 @@
   <!-- FAVICON -->
   <link href="/static/img/favicon.png" rel="shortcut icon" />
   <script src="/static/plugins/nprogress/nprogress.js"></script>
+  <style>
+.class-scheduled {
+    background-color: #d4edda;  /* Light green */
+}
+.no-class {
+    background-color: #f8d7da;  /* Light red */
+}
+.table td, .table th {
+    padding: 0.5rem;  /* Reduce padding in table cells */
+}
+.table td small {
+    margin: 0;
+    line-height: 1.2;
+    display: block;
+}
+.table {
+    margin-bottom: 0;
+}
+</style>
   {% endblock %} {% block css %} {% endblock %} {% block jslinks %}
   <script src="/static/plugins/jquery/jquery.min.js"></script>
   <script src="/static/plugins/bootstrap/js/bootstrap.bundle.min.js"></script>

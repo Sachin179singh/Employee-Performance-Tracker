@@ -7,17 +7,20 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title> {% block title %} {% endblock %} </title>
     
+    <link href="/static/plugins/toastr/toastr.min.css" rel="stylesheet" />
     {% block css %} {% endblock %}
     {% block csslinks %} {% endblock %}
+    <style>
+      #toast-container {
+        top: 70px;
+        right: 20px;
+      }
+      .toast {
+        opacity: 1 !important;
+      }
+    </style>
   </head>
   <body class="header-fixed sidebar-fixed sidebar-dark header-light" id="body">
-    <!-- <script>
-      NProgress.configure({ showSpinner: false });
-      NProgress.start();
-    </script> -->
-    <!-- ====================================
-    ——— WRAPPER
-    ===================================== -->
     <div class="wrapper">
       {% include 'partials/sidebar.html' %}
       <div class="page-wrapper">
@@ -26,9 +29,49 @@
         {% include 'partials/footer.html' %}
       </div>
     </div>
+
+    <script src="/static/plugins/jquery/jquery.min.js"></script>
+    <script src="/static/plugins/toastr/toastr.min.js"></script>
     {% block jslinks %} {% endblock %}
     {% block js %} {% endblock %}
     <script src="/static/js/sleek.js"></script>
     
+    <script>
+    // Configure Toastr
+    toastr.options = {
+      closeButton: true,
+      debug: false,
+      newestOnTop: true,
+      progressBar: true,
+      positionClass: "toast-top-right",
+      preventDuplicates: false,
+      onclick: null,
+      showDuration: "300",
+      hideDuration: "1000",
+      timeOut: "5000",
+      extendedTimeOut: "1000",
+      showEasing: "swing",
+      hideEasing: "linear",
+      showMethod: "fadeIn",
+      hideMethod: "fadeOut"
+    };
+
+    // Show flash messages using Toastr
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          {% if category == 'error' %}
+            toastr.error('{{ message }}');
+          {% elif category == 'warning' %}
+            toastr.warning('{{ message }}');
+          {% elif category == 'success' %}
+            toastr.success('{{ message }}');
+          {% else %}
+            toastr.info('{{ message }}');
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    </script>
   </body>
 </html>

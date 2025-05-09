@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Create Project - Employee Track{% endblock %}
+
+{% block csslinks %}
+<link href="https://fonts.googleapis.com/css?family=Montserrat:400,500|Poppins:400,500,600,700|Roboto:400,500" rel="stylesheet" />
+<link href="https://cdn.materialdesignicons.com/4.4.95/css/materialdesignicons.min.css" rel="stylesheet" />
+<link href="/static/plugins/simplebar/simplebar.css" rel="stylesheet" />
+<link href="/static/plugins/nprogress/nprogress.css" rel="stylesheet" />
+<link id="sleek-css" rel="stylesheet" href="/static/css/sleek.css" />
+<link href="/static/img/favicon.png" rel="shortcut icon" />
+<script src="/static/plugins/nprogress/nprogress.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="content-wrapper">
+  <div class="content">
+    <div class="row">
+      <div class="col-12">
+        <div class="card card-default">
+          <div class="card-header card-header-border-bottom">
+            <h2>Create New Project</h2>
+          </div>
+          <div class="card-body">
+            <form method="POST" class="row">
+              {{ form.hidden_tag() }}
+              <div class="col-md-6 mb-3">
+                <div class="form-group">
+                  {{ form.name.label(class="form-label") }}
+                  {{ form.name(class="form-control", required=true) }}
+                  {% if form.name.errors %}
+                    {% for error in form.name.errors %}
+                      <span class="text-danger">{{ error }}</span>
+                    {% endfor %}
+                  {% endif %}
+                </div>
+              </div>
+              <div class="col-md-6 mb-3">
+                <div class="form-group">
+                  {{ form.project_type.label(class="form-label") }}
+                  {{ form.project_type(class="form-control", required=true) }}
+                  {% if form.project_type.errors %}
+                    {% for error in form.project_type.errors %}
+                      <span class="text-danger">{{ error }}</span>
+                    {% endfor %}
+                  {% endif %}
+                </div>
+              </div>
+              <div class="col-12 mb-3">
+                <div class="form-group">
+                  {{ form.description.label(class="form-label") }}
+                  {{ form.description(class="form-control", rows="4") }}
+                  {% if form.description.errors %}
+                    {% for error in form.description.errors %}
+                      <span class="text-danger">{{ error }}</span>
+                    {% endfor %}
+                  {% endif %}
+                </div>
+              </div>
+              <div class="col-md-6 mb-3">
+                <div class="form-group">
+                  {{ form.github_link.label(class="form-label") }}
+                  {{ form.github_link(class="form-control", placeholder="https://github.com/username/repository") }}
+                  {% if form.github_link.errors %}
+                    {% for error in form.github_link.errors %}
+                      <span class="text-danger">{{ error }}</span>
+                    {% endfor %}
+                  {% endif %}
+                </div>
+              </div>
+              <div class="col-md-6 mb-3">
+                <div class="form-group">
+                  {{ form.trainee_names.label(class="form-label") }}
+                  {{ form.trainee_names(class="form-control", rows="3", placeholder="Enter trainee names (one per line)") }}
+                  {% if form.trainee_names.errors %}
+                    {% for error in form.trainee_names.errors %}
+                      <span class="text-danger">{{ error }}</span>
+                    {% endfor %}
+                  {% endif %}
+                  <small class="form-text text-muted">Enter each trainee's name on a new line</small>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="d-flex justify-content-between">
+                  <a href="{{ url_for('projects') }}" class="btn btn-secondary">Cancel</a>
+                  {{ form.submit(class="btn btn-primary") }}
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Projects - Employee Track{% endblock %}
+
+{% block csslinks %}
+<link href="https://fonts.googleapis.com/css?family=Montserrat:400,500|Poppins:400,500,600,700|Roboto:400,500" rel="stylesheet" />
+<link href="https://cdn.materialdesignicons.com/4.4.95/css/materialdesignicons.min.css" rel="stylesheet" />
+<link href="/static/plugins/simplebar/simplebar.css" rel="stylesheet" />
+<link href="/static/plugins/nprogress/nprogress.css" rel="stylesheet" />
+<link href="/static/plugins/data-tables/dataTables.bootstrap4.min.css" rel="stylesheet" />
+<link id="sleek-css" rel="stylesheet" href="/static/css/sleek.css" />
+<link href="/static/img/favicon.png" rel="shortcut icon" />
+<script src="/static/plugins/nprogress/nprogress.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="content-wrapper">
+  <div class="content">
+    <div class="row">
+      <div class="col-12">
+        <div class="card card-default">
+          <div class="card-header card-header-border-bottom d-flex justify-content-between">
+            <h2>My Projects</h2>
+            <a href="{{ url_for('create_project') }}" class="btn btn-primary">Create New Project</a>
+          </div>
+          <div class="card-body">
+            {% if owned_projects or assigned_projects %}
+              {% if owned_projects %}
+                <h3>Projects I Own</h3>
+                <div class="row mt-4">
+                  {% for project in owned_projects %}
+                    <div class="col-lg-4 col-md-6 mb-4">
+                      <div class="card h-100">
+                        <div class="card-body">
+                          <h4 class="card-title">
+                            <a href="{{ url_for('project_details', project_id=project.id) }}">{{ project.name }}</a>
+                          </h4>
+                          <h6 class="card-subtitle mb-2 text-muted">{{ project.project_type }}</h6>
+                          <div class="progress mb-3">
+                            <div class="progress-bar" role="progressbar" style="width: {{ project.completion_percentage }}%">
+                              {{ "%.1f"|format(project.completion_percentage) }}%
+                            </div>
+                          </div>
+                          <p class="card-text">{{ project.description|truncate(100) }}</p>
+                          {% if project.trainees %}
+                            <p><small>Assigned to: 
+                              {% for pt in project.trainees %}
+                                {{ pt.trainee.name }}{% if not loop.last %}, {% endif %}
+                              {% endfor %}
+                            </small></p>
+                          {% endif %}
+                        </div>
+                        <div class="card-footer">
+                          <small class="text-muted">Created {{ project.created_at.strftime('%Y-%m-%d') }}</small>
+                        </div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              {% if assigned_projects %}
+                <h3 class="mt-4">Projects Assigned to Me</h3>
+                <div class="row mt-4">
+                  {% for project in assigned_projects %}
+                    <div class="col-lg-4 col-md-6 mb-4">
+                      <div class="card h-100">
+                        <div class="card-body">
+                          <h4 class="card-title">
+                            <a href="{{ url_for('project_details', project_id=project.id) }}">{{ project.name }}</a>
+                          </h4>
+                          <h6 class="card-subtitle mb-2 text-muted">{{ project.project_type }}</h6>
+                          <div class="progress mb-3">
+                            <div class="progress-bar" role="progressbar" style="width: {{ project.completion_percentage }}%">
+                              {{ "%.1f"|format(project.completion_percentage) }}%
+                            </div>
+                          </div>
+                          <p class="card-text">{{ project.description|truncate(100) }}</p>
+                          <p><small>Owner: {{ project.owner.name }}</small></p>
+                        </div>
+                        <div class="card-footer">
+                          <small class="text-muted">Created {{ project.created_at.strftime('%Y-%m-%d') }}</small>
+                        </div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% else %}
+              <div class="text-center py-5">
+                <h4>No projects found</h4>
+                <p>Create a new project to get started!</p>
+                <a href="{{ url_for('create_project') }}" class="btn btn-primary">Create Project</a>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

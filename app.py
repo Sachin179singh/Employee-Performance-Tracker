@@ -1115,7 +1115,7 @@ def delete_batch(batch_id):
 
 
 def start_server():
-    app.run(debug=True, host='0.0.0.0', port=5000)  # Be explicit about host and port
+    app.run(debug=False, host='0.0.0.0', port=5000)  # Be explicit about host and port
 
 
 if __name__ == '__main__':
@@ -1129,13 +1129,13 @@ if __name__ == '__main__':
             admin_user.set_password('password')  # USE A STRONG PASSWORD!
             db.session.add(admin_user)
             db.session.commit()
-        start_server()
+        # start_server()
     # --- Start Flask server in a thread ---
-    # t = threading.Thread(target=start_server)
-    # t.daemon = True
-    # t.start()
-    # time.sleep(1)  # Give the server a moment to start
+    t = threading.Thread(target=start_server)
+    t.daemon = True
+    t.start()
+    time.sleep(1)  # Give the server a moment to start
 
     # --- Create and run WebView window ---
-    # webview.create_window("Company App", "http://127.0.0.1:5000/",maximized=True, resizable=False)
+    webview.create_window("Company App", "http://127.0.0.1:5000/",maximized=True, resizable=False)
     # webview

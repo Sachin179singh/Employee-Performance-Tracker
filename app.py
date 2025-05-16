@@ -1129,7 +1129,7 @@ if __name__ == '__main__':
             admin_user.set_password('password')  # USE A STRONG PASSWORD!
             db.session.add(admin_user)
             db.session.commit()
-        start_server()
+        # start_server()
     # --- Start Flask server in a thread ---
     # t = threading.Thread(target=start_server)
     # t.daemon = True

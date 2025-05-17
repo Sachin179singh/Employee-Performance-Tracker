@@ -1,0 +1,93 @@
+.sidebar {
+    width: 250px;
+    transition: all 0.3s ease;
+    position: fixed;
+    left: 0;
+    height: 100%;
+    z-index: 1000;
+}
+
+.sidebar.collapsed {
+    width: 70px;
+}
+
+.sidebar.collapsed .nav-text,
+.sidebar.collapsed .brand-icon img {
+    display: none;
+}
+
+.sidebar.collapsed .sidebar-toggle {
+    transform: rotate(180deg);
+}
+
+.sidebar-toggle {
+    position: absolute;
+    right: -15px;
+    top: 70px;
+    width: 30px;
+    height: 30px;
+    background: #2196F3;
+    border: none;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1001;
+    transition: transform 0.3s ease;
+}
+
+.sidebar-toggle:hover {
+    background: #1976D2;
+}
+
+.sidebar-toggle i {
+    font-size: 20px;
+}
+
+/* Adjust main content when sidebar is collapsed */
+.content-wrapper {
+    margin-left: 250px;
+    transition: all 0.3s ease;
+}
+
+body.sidebar-collapsed .content-wrapper {
+    margin-left: 70px;
+}
+
+/* Make icons larger when text is hidden */
+.sidebar.collapsed .mdi {
+    font-size: 24px;
+}
+
+/* Center the icons when sidebar is collapsed */
+.sidebar.collapsed .sidenav-item-link {
+    justify-content: center;
+    padding: 12px 0;
+}
+
+/* Add tooltip for collapsed menu items */
+.sidebar.collapsed .has-sub {
+    position: relative;
+}
+
+.sidebar.collapsed .has-sub:hover::after {
+    content: attr(data-title);
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #333;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 1002;
+}
+
+/* Adjust logo container when collapsed */
+.sidebar.collapsed .app-brand {
+    padding: 15px 0;
+}

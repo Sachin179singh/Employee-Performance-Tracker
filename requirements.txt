@@ -1,7 +1,3 @@
-[AutoPylot] Scanning directory: D:\projects jo dikhane h\Employee-Performance-Tracker
-[AutoPylot] Scanning 3 Python files for imports...
-[AutoPylot] Found 19 unique imports.
-[AutoPylot] Found 12 external packages:
 WTForms
 alembic
 bcrypt

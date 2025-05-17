@@ -1134,8 +1134,9 @@ if __name__ == '__main__':
     t = threading.Thread(target=start_server)
     t.daemon = True
     t.start()
+    import time
     time.sleep(1)  # Give the server a moment to start
 
     # --- Create and run WebView window ---
     webview.create_window("Company App", "http://127.0.0.1:5000/",maximized=True, resizable=False)
-    # webview
+    webview.start(start_server)

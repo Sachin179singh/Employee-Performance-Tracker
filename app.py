@@ -1138,5 +1138,5 @@ if __name__ == '__main__':
     time.sleep(1)  # Give the server a moment to start
 
     # --- Create and run WebView window ---
-    webview.create_window("Company App", "http://127.0.0.1:5000/",maximized=True, resizable=False)
+    webview.create_window("Digipodium App", "http://127.0.0.1:5000/",maximized=True, resizable=False)
     webview.start(start_server)

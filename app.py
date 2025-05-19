@@ -92,7 +92,6 @@ class Attendance(db.Model):
     def __repr__(self):
         return f"Attendance('{self.date}', '{self.time_in}')"
 
-
 class Meeting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False)

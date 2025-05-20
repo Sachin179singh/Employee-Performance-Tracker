@@ -57,12 +57,9 @@
         <div class="card card-default">
           <div class="card-header card-header-border-bottom d-flex justify-content-between align-items-center">
             <h2>Group Chat</h2>
-            <div class="btn-group">
-              <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown">
-                Send To: <span id="currentRecipient">Everyone</span>
-              </button>
-              <div class="dropdown-menu">
-                <a class="dropdown-item" href="#" data-recipient-id="0">Everyone</a>
+            <div class="btn-group">              <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown">
+                Send To: <span id="currentRecipient">Select User</span>
+              </button><div class="dropdown-menu">
                 {% for user in form.recipient_id.choices if user[0] != 0 %}
                 <a class="dropdown-item" href="#" data-recipient-id="{{ user[0] }}">{{ user[1] }}</a>
                 {% endfor %}
@@ -117,6 +114,15 @@
 <script src="/static/js/sleek.js"></script>
 <script>
 $(document).ready(function() {
+    // Select the first user in the dropdown by default
+    var firstUser = $('.dropdown-item').first();
+    if (firstUser.length > 0) {
+        var recipientId = firstUser.data('recipient-id');
+        var recipientName = firstUser.text();
+        $('#currentRecipient').text(recipientName);
+        $('#recipient_id').val(recipientId);
+    }
+    
     function scrollToBottom() {
         var chatMessages = document.getElementById('chatMessages');
         chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -130,21 +136,36 @@ $(document).ready(function() {
         var recipientName = $(this).text();
         $('#currentRecipient').text(recipientName);
         $('#recipient_id').val(recipientId);
+        console.log('Selected recipient:', recipientId, recipientName);
     });
 
     // Handle form submission
     $('#chatForm').on('submit', function(e) {
         e.preventDefault();
+        var recipientId = $('#recipient_id').val();
+        var content = $('#content').val();
+        
+        if (!content.trim()) {
+            alert('Please enter a message');
+            return;
+        }
+
+        var formData = $(this).serialize();
+        console.log('Sending message with data:', formData);
+
         $.ajax({
             url: '/chat',
             type: 'POST',
-            data: $(this).serialize(),
+            data: formData,
             success: function(response) {
+                console.log('Message sent successfully');
                 $('#content').val('');
                 loadMessages();
             },
-            error: function() {
-                alert('Error sending message');
+            error: function(xhr, status, error) {
+                console.error('Error sending message:', error);
+                console.error('Server response:', xhr.responseText);
+                alert('Error sending message: ' + error);
             }
         });
     });
